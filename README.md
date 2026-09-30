@@ -77,7 +77,16 @@ conda activate ctdna10
 
 ## 🚀 Quick Start
 
-Run all commands from the project root:
+Run all commands from the project root. To run every step in order:
+
+```bash
+python main.py                    # all steps, stops at the first failure
+python main.py --list             # show the steps
+python main.py --from 05          # resume from a step
+python main.py --from 08 --to 10  # run a range of steps
+```
+
+Or run the steps one by one:
 
 ```bash
 # 📋 Metadata and cohort
