@@ -1,0 +1,32 @@
+# ------------------------------------------------------------
+# Only code and the input files needed to run it are tracked.
+# Everything the pipeline generates is ignored.
+# ------------------------------------------------------------
+
+# Large data and reference (steps 001-07, 04)
+/data/
+/reference/
+/logs/
+
+# Generated outputs (steps 08-10 and notebooks)
+/features/
+/results/
+/notebooks/data/
+
+# Generated metadata (steps 0 and 00) -- keep only the raw inputs
+/metadata/*
+!/metadata/raw/
+!/metadata/publication/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp.*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,24 @@
+name: ctdna10
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  # data handling
+  - pandas>=2.2
+  - numpy>=1.26
+  - openpyxl            # read the ELSA supplementary .xlsx (step 0)
+  # bioinformatics tools
+  - fastqc
+  - trim-galore
+  - bismark>=3          # scripts use the v3 sub-commands: prepare / align / dedup / extract
+  - bowtie2
+  - samtools
+  - multiqc
+  # analysis / ML notebooks
+  - scipy
+  - scikit-learn>=1.4
+  - matplotlib
+  - jupyterlab
+  - ipykernel
