@@ -8,14 +8,16 @@ dependencies:
   # data handling
   - pandas>=2.2
   - numpy>=1.26
-  - openpyxl            # read the ELSA supplementary .xlsx (step 0)
+  - openpyxl 
   # bioinformatics tools
   - fastqc
   - trim-galore
-  - bismark>=3          # scripts use the v3 sub-commands: prepare / align / dedup / extract
+  - bismark>=3
   - bowtie2
   - samtools
   - multiqc
+  # nfcore mode (main.py --mode nfcore); containers need Docker/Singularity separately
+  - nextflow>=24.10.5
   # analysis / ML notebooks
   - scipy
   - scikit-learn>=1.4

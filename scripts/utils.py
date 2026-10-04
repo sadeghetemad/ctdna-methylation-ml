@@ -19,6 +19,33 @@ LOG_DIR = ROOT / "logs"
 # Override without editing code:  CTDNA_THREADS=16 python scripts/05_align.py
 THREADS = int(os.environ.get("CTDNA_THREADS", "8"))
 
+# How steps 01-07 are run; main.py --mode sets it for every step:
+#   classic : the Python scripts 01-07
+#   nfcore  : nf-core/methylseq (nf_methylseq.py)
+# Override without editing code:  CTDNA_MODE=nfcore python scripts/08_build_features.py
+MODES = ("classic", "nfcore")
+MODE = os.environ.get("CTDNA_MODE", "classic")
+
+if MODE not in MODES:
+    raise ValueError(f"CTDNA_MODE must be one of {MODES}, got {MODE!r}")
+
+# Per-CpG Bismark coverage files, <dir>/<run><suffix>, read by 08_build_features.py
+CLASSIC_COV = (ROOT / "data/methylation", ".filtered.namesort.bismark.cov.gz")  # by 07
+NFCORE_COV = (ROOT / "data/nfcore/methylation", ".bismark.cov.gz")              # by nf_methylseq
+
+METH_DIR, COV_SUFFIX = CLASSIC_COV if MODE == "classic" else NFCORE_COV
+
+
+def mode_dir(path):
+    """Output directory of steps 08-10: classic keeps the path, other modes add /<mode>."""
+    path = ROOT / path
+    return path if MODE == "classic" else path / MODE
+
+
+FEATURES_DIR = mode_dir("features")
+FEATURE_QC_DIR = mode_dir("results/feature_qc")
+ML_DATA_DIR = mode_dir("notebooks/data")
+
 
 def _printable(cmd):
     return shlex.join(str(x) for x in cmd)

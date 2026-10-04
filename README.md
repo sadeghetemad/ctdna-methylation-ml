@@ -15,6 +15,7 @@
 - [Pipeline at a Glance](#-pipeline-at-a-glance)
 - [Installation](#-installation)
 - [Quick Start](#-quick-start)
+- [Modes: Classic and nf-core](#-modes-classic-and-nf-core)
 - [Scripts](#-scripts)
 - [Machine Learning](#-machine-learning)
 - [Configuration](#%EF%B8%8F-configuration)
@@ -36,6 +37,8 @@ This repository rebuilds the region-level methylation features used by the **ELS
 | 🗺️ **Reference** | UCSC hg19 |
 
 Every step is a small standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
+
+The read processing (steps 01–07) can run in two **modes**: the `classic` Python scripts, or [nf-core/methylseq](https://nf-co.re/methylseq) (`nfcore`). Both feed the same feature and ML steps.
 
 ---
 
@@ -80,13 +83,14 @@ conda activate ctdna10
 Run all commands from the project root. To run every step in order:
 
 ```bash
-python main.py                    # all steps, stops at the first failure
-python main.py --list             # show the steps
+python main.py                    # classic mode, all steps, stops at the first failure
+python main.py --mode nfcore      # nf-core/methylseq instead of steps 01-07
+python main.py --list             # show the steps of a mode
 python main.py --from 05          # resume from a step
 python main.py --from 08 --to 10  # run a range of steps
 ```
 
-Or run the steps one by one:
+Or run the steps one by one (classic mode):
 
 ```bash
 # 📋 Metadata and cohort
@@ -118,6 +122,85 @@ To set the number of threads (8 by default):
 ```bash
 CTDNA_THREADS=16 python scripts/05_align.py
 ```
+
+---
+
+## 🔀 Modes: Classic and nf-core
+
+```text
+                         classic:  01 FastQC → 02 trim → 03 FastQC → 05 align → 06 dedup + filter → 07 methylation
+ 0 → 00 → 001 → 04 ─▶                                                                                              ─▶ 08 → 09 → 10
+                         nfcore:   nf  nf-core/methylseq (FastQC, Trim Galore, Bismark, dedup, methylation, MultiQC)
+```
+
+| | `classic` (default) | `nfcore` |
+|---|---|---|
+| Steps 01–07 | Python scripts `01`–`07` | `scripts/nf_methylseq.py` (step `nf`) runs nf-core/methylseq **4.2.0** |
+| Needs | Tools from `environment.yml` | Nextflow (in `environment.yml`) and Docker, Singularity or Apptainer |
+| Coverage files for 08 | `data/methylation/<run>.filtered.namesort.bismark.cov.gz` | `data/nfcore/methylation/<run>.bismark.cov.gz` (links into the nf-core results) |
+| Features, QC, ML data | `features/`, `results/feature_qc/`, `notebooks/data/` | the same folders with an `nfcore/` subfolder |
+
+The two modes never overwrite each other, so you can run both and compare `features/` with `features/nfcore/`.
+
+`main.py --mode` sets the `CTDNA_MODE` environment variable for every step. To run a single step in nf-core mode by hand:
+
+```bash
+CTDNA_MODE=nfcore python scripts/08_build_features.py
+```
+
+### Running in nf-core mode
+
+```bash
+# One time: Docker (or Singularity / Apptainer) and Nextflow
+sudo apt-get install -y docker.io && sudo usermod -aG docker $USER   # then log in again
+conda env update -f environment.yml                                 # adds nextflow
+
+# Whole pipeline
+python main.py --mode nfcore                          # Docker
+python main.py --mode nfcore --nf-profile singularity # Singularity
+
+# Only nf-core, then the features
+python main.py --mode nfcore --from nf --to nf
+python main.py --mode nfcore --from 08
+```
+
+Run long jobs inside `tmux` or `screen`. If the run stops, run the same command again: Nextflow resumes with `-resume`.
+
+The `nf` step:
+1. 📋 writes `data/nfcore/inputs/samplesheet.csv` from the cohort and `data/fastq/<run>_{1,2}.fastq.gz`. If a run has no FASTQ files, it stops and names the run.
+2. 🗺️ writes the panel BED with UCSC names (`chr1, …`) to match `hg19.fa`.
+3. ▶️ runs nf-core/methylseq with `config/methylseq_params.yaml` and `config/methylseq.config`. If `reference/hg19/Bisulfite_Genome` exists, it is reused through `--bismark_index`.
+4. 🔗 links each run's `.bismark.cov.gz` to `data/nfcore/methylation/`.
+
+| `main.py` option | Description |
+|---|---|
+| `--nf-profile` | Nextflow profile: `docker` (default), `singularity`, `apptainer`, `conda` |
+| `--build-index` | Let nf-core build its own Bismark index. Use this if alignment fails with the index from step 04 (built with Bismark v3) |
+
+To check the inputs and print the Nextflow command without running it:
+
+```bash
+python scripts/nf_methylseq.py --dry-run
+```
+
+### nf-core settings
+
+`config/methylseq_params.yaml` follows the classic scripts as closely as nf-core allows:
+
+| Step | Classic | nf-core |
+|---|---|---|
+| Trimming | Trim Galore `--illumina -q 20 --length 20` | Trim Galore, Q20, `length_trim: 20`, adapter auto-detected |
+| Alignment | Bismark + Bowtie2 | `aligner: bismark` |
+| Deduplication | `bismark dedup` | `deduplicate_bismark` |
+| Methylation | `bismark extract --comprehensive --cytosine_report` | `comprehensive`, `cytosine_report`, `no_overlap` |
+| Ignored bases | none | `ignore_r1/r2`, `ignore_3prime_r1/r2` set to `0` (the nf-core default is 2 bp on R2) |
+| Read filter | `samtools view -q 20 -f 2 -F 0x904` | **No MAPQ filter.** Bismark already keeps only unique, concordant pairs, so only the MAPQ ≥ 20 cut is missing |
+| QC report | separate FastQC folders | one MultiQC report: `results/nfcore_methylseq/multiqc/multiqc_report.html` |
+| Targeted analysis | none | calls restricted to the ELSA regions (`run_targeted_sequencing`) |
+
+Because of the missing MAPQ filter, the features of the two modes are close but not identical.
+
+`config/methylseq.config` limits every nf-core job to **8 CPUs, 28 GB and 72 h**. Edit it to match your machine.
 
 ---
 
@@ -334,6 +417,8 @@ jupyter lab
 
 The model outputs are written to `results/ml/`.
 
+The notebooks read `notebooks/data/`. For the nf-core mode dataset, set `DATA_DIR = ROOT / "notebooks/data/nfcore"` in the notebook.
+
 **Best practices built into the notebooks**
 
 - ✅ Preprocessing runs inside an sklearn `Pipeline`, so it is fit on the training folds only.
@@ -347,11 +432,14 @@ The model outputs are written to `results/ml/`.
 
 | Setting | Where | Default |
 |---|---|---|
+| Mode | `main.py --mode`, or the `CTDNA_MODE` environment variable (`scripts/utils.py`) | `classic` |
 | Threads | `CTDNA_THREADS` environment variable (`scripts/utils.py`) | `8` |
-| Cohort file | `COHORT_FILE` in `001` and `08`, `FEATURE_FILE` / `COVERAGE_FILE` in `09`, `COHORT` in `10` | working cohort from `00` |
+| Cohort file | `COHORT_FILE` in `001`, `08` and `nf_methylseq`, `FEATURE_FILE` / `COVERAGE_FILE` in `09`, `COHORT` in `10` | working cohort from `00` |
 | Cohort size / seed | `00_select_samples.py` | balanced, `random_state = 42` |
 | MAPQ threshold | `MIN_MAPQ` in `06_dedup_filter.py` | `20` |
 | Trimming | `02_trim.py` | Q20, Illumina adapter, min length 20 |
+| nf-core parameters | `config/methylseq_params.yaml` | see [nf-core settings](#nf-core-settings) |
+| nf-core resources | `config/methylseq.config` | 8 CPUs, 28 GB, 72 h per job |
 
 To run the **full cohort**, point the cohort settings at `metadata/primary_cohort_stage1_vs_control.tsv`.
 
@@ -373,8 +461,11 @@ To run the **full cohort**, point the cohort settings at `metadata/primary_cohor
 ctdna-methylation-ml/
 ├── 📄 README.md
 ├── 📄 environment.yml            # conda environment
+├── 📄 main.py                    # runs all steps in order (--mode classic | nfcore)
 ├── 📂 scripts/                   # numbered pipeline steps
-│   └── utils.py                  # shared paths, threads, logged command runner
+│   ├── nf_methylseq.py           # nfcore mode: nf-core/methylseq for steps 01-07
+│   └── utils.py                  # shared paths, mode, threads, logged command runner
+├── 📂 config/                    # nf-core/methylseq parameters and resources
 ├── 📂 metadata/
 │   ├── raw/                      # SRA run table (input)
 │   ├── publication/              # supplementary tables (input)
@@ -382,16 +473,18 @@ ctdna-methylation-ml/
 ├── 📂 reference/hg19/            # FASTA + Bismark index
 ├── 📂 data/                      # large intermediates (not version-controlled)
 │   ├── fastq/  trimmed/  aligned/
-│   └── dedup/  filtered/  methylation/
-├── 📂 features/                  # sample × region matrices
+│   ├── dedup/  filtered/  methylation/
+│   └── nfcore/                   # nfcore mode: inputs/, work/, methylation/
+├── 📂 features/                  # sample × region matrices (nfcore/ for nfcore mode)
 ├── 📂 results/
 │   ├── fastqc_raw/  fastqc_trimmed/
-│   ├── feature_qc/
+│   ├── nfcore_methylseq/         # nf-core results and MultiQC report
+│   ├── feature_qc/               # (nfcore/ for nfcore mode)
 │   └── ml/
 ├── 📂 notebooks/
 │   ├── 01_EDA.ipynb
 │   ├── 02_ML_baseline.ipynb
-│   └── data/                     # ML-ready dataset
+│   └── data/                     # ML-ready dataset (nfcore/ for nfcore mode)
 └── 📂 logs/
 ```
 
@@ -403,6 +496,7 @@ ctdna-methylation-ml/
 |---|---|
 | hg19 FASTA + Bismark index | ~18 GB (one time) |
 | Intermediate files per sample | ~10 GB |
+| nf-core work directory (`data/nfcore/work/`) | about the same as the classic intermediates; delete it once `results/nfcore_methylseq/` is complete (resuming is then no longer possible) |
 
 Once a sample has its `.bismark.cov.gz`, you can remove these files:
 

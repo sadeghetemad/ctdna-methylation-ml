@@ -4,14 +4,12 @@ import sys
 import numpy as np
 import pandas as pd
 
-from utils import ROOT
+from utils import ROOT, METH_DIR, COV_SUFFIX, FEATURES_DIR
 
 
 # ============================================================
 # Paths
 # ============================================================
-
-METH_DIR = ROOT / "data/methylation"
 
 TARGET_FILE = (
     ROOT
@@ -23,7 +21,7 @@ COHORT_FILE = (
     / "metadata/test_cohort_10.tsv"
 )
 
-OUT_DIR = ROOT / "features"
+OUT_DIR = FEATURES_DIR    # features/ (classic) or features/nfcore/
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Output names follow the cohort file: test_cohort_10 -> test_cohort_10_*.tsv
@@ -120,13 +118,14 @@ def load_targets():
 
 def find_coverage_file(run_id):
     """
-    Exact file name produced by 07_extract_methylation.py.
+    Exact file name produced by 07_extract_methylation.py (classic)
+    or linked by nf_methylseq.py (nfcore).
 
     No wildcard fallback: a pattern such as *SRR123*.cov.gz could
     silently pick up a different run (e.g. SRR1234).
     """
 
-    path = METH_DIR / f"{run_id}.filtered.namesort.bismark.cov.gz"
+    path = METH_DIR / f"{run_id}{COV_SUFFIX}"
 
     return path if path.exists() else None
 

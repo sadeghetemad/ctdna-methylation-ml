@@ -1,25 +1,23 @@
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
+
+from utils import FEATURES_DIR, FEATURE_QC_DIR
 
 
 # ============================================================
 # Paths
 # ============================================================
 
-ROOT = Path(__file__).resolve().parents[1]
-
 FEATURE_FILE = (
-    ROOT / "features/test_cohort_10_features.tsv"
+    FEATURES_DIR / "test_cohort_10_features.tsv"
 )
 
 # Written by 08_build_features.py (reads per region); optional.
 COVERAGE_FILE = (
-    ROOT / "features/test_cohort_10_coverage.tsv"
+    FEATURES_DIR / "test_cohort_10_coverage.tsv"
 )
 
-OUT_DIR = ROOT / "results/feature_qc"
+OUT_DIR = FEATURE_QC_DIR    # results/feature_qc/ (classic) or .../nfcore/
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 

@@ -14,6 +14,9 @@ Outputs (notebooks/data/):
   regions.tsv         all 2473 regions, with QC stats and kept/drop reason
   dataset_info.json   parameters and counts
 
+In nfcore mode (CTDNA_MODE=nfcore) the inputs are read from features/nfcore/
+and the outputs go to notebooks/data/nfcore/.
+
 Deliberately NOT done here (must happen inside cross-validation folds to
 avoid information leakage): imputation, scaling, feature selection.
 Only label-free filters are applied (per-value depth mask, region
@@ -29,14 +32,14 @@ import sys
 import numpy as np
 import pandas as pd
 
-from utils import ROOT
+from utils import ROOT, MODE, FEATURES_DIR, ML_DATA_DIR
 
 
 COHORT = "test_cohort_10"
 
-FEATURE_FILE = ROOT / f"features/{COHORT}_features.tsv"
-COVERAGE_FILE = ROOT / f"features/{COHORT}_coverage.tsv"
-N_CPG_FILE = ROOT / f"features/{COHORT}_n_cpg.tsv"
+FEATURE_FILE = FEATURES_DIR / f"{COHORT}_features.tsv"
+COVERAGE_FILE = FEATURES_DIR / f"{COHORT}_coverage.tsv"
+N_CPG_FILE = FEATURES_DIR / f"{COHORT}_n_cpg.tsv"
 COHORT_FILE = ROOT / f"metadata/{COHORT}.tsv"
 TARGET_FILE = ROOT / "metadata/targets/ELSA_plasma_2473_hg19.bed"
 
@@ -66,7 +69,8 @@ SAMPLE_COLUMNS = [
 def parse_args():
 
     p = argparse.ArgumentParser(
-        description="Build the ML-ready dataset in notebooks/data/."
+        description="Build the ML-ready dataset in notebooks/data/ "
+                    "(notebooks/data/nfcore/ in nfcore mode)."
     )
 
     p.add_argument(
@@ -86,7 +90,9 @@ def parse_args():
     p.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("notebooks/data"),
+        default=ML_DATA_DIR,
+        help="Output directory (default: notebooks/data, "
+             "or notebooks/data/nfcore in nfcore mode).",
     )
 
     return p.parse_args()
@@ -240,6 +246,7 @@ def main():
     info = {
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "cohort": COHORT,
+        "mode": MODE,
         "source_files": [
             str(p.relative_to(ROOT))
             for p in (FEATURE_FILE, COVERAGE_FILE, N_CPG_FILE, COHORT_FILE)

@@ -18,6 +18,11 @@
 !/metadata/raw/
 !/metadata/publication/
 
+# Nextflow run from the project root (nfcore mode itself uses data/nfcore/)
+/work/
+/.nextflow/
+/.nextflow.log*
+
 # Python / Jupyter
 __pycache__/
 *.pyc
