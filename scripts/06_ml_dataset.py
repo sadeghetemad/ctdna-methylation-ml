@@ -1,7 +1,7 @@
 """
-Build the ML-ready dataset used by notebooks/02_ML_baseline.ipynb.
+Step 06: the ML-ready dataset used by notebooks/02_ML_baseline.ipynb.
 
-Inputs (from 08_build_features.py):
+Inputs (from 04_features.py):
   features/<cohort>_features.tsv    methylation fraction per sample x region
   features/<cohort>_coverage.tsv    methylation calls per sample x region
   features/<cohort>_n_cpg.tsv       observed CpG sites per sample x region
@@ -32,16 +32,12 @@ import sys
 import numpy as np
 import pandas as pd
 
-from utils import ROOT, MODE, FEATURES_DIR, ML_DATA_DIR
+from utils import ROOT, MODE, COHORT, COHORT_FILE, TARGET_BED, FEATURES_DIR, ML_DATA_DIR
 
-
-COHORT = "test_cohort_10"
 
 FEATURE_FILE = FEATURES_DIR / f"{COHORT}_features.tsv"
 COVERAGE_FILE = FEATURES_DIR / f"{COHORT}_coverage.tsv"
 N_CPG_FILE = FEATURES_DIR / f"{COHORT}_n_cpg.tsv"
-COHORT_FILE = ROOT / f"metadata/{COHORT}.tsv"
-TARGET_FILE = ROOT / "metadata/targets/ELSA_plasma_2473_hg19.bed"
 
 META_COLUMNS = ["run_id", "sample_id", "ml_label"]
 
@@ -135,7 +131,7 @@ def main():
     ):
         raise ValueError(
             "Feature / coverage / n_cpg matrices are not aligned. "
-            "Rerun 08_build_features.py."
+            "Rerun 04_features.py."
         )
 
     region_ids = fraction.columns.tolist()
@@ -189,7 +185,7 @@ def main():
     # --------------------------------------------------------
 
     targets = pd.read_csv(
-        TARGET_FILE,
+        TARGET_BED,
         sep="\t",
         header=None,
         names=["chrom", "start0", "end", "region_id"],

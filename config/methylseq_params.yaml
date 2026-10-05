@@ -1,27 +1,27 @@
 # ------------------------------------------------------------
 # nf-core/methylseq parameters for the ELSA cohort (nfcore mode).
 #
-# Replaces steps 01-07 of classic mode. The settings follow those
-# scripts as closely as nf-core/methylseq allows, so the coverage
-# files can go straight into 08_build_features.py.
+# Replaces scripts/03_process_custom.py (custom mode). The settings
+# follow it as closely as nf-core/methylseq allows, so the coverage
+# files can go straight into 04_features.py.
 #
 # Paths (input, outdir, fasta, index, targets) are passed on the
-# command line by scripts/nf_methylseq.py and are not set here.
+# command line by scripts/03_process_nfcore.py and are not set here.
 # ------------------------------------------------------------
 
-# Alignment: Bismark + Bowtie2, as in 05_align.py
+# Alignment: Bismark + Bowtie2, as in the align stage
 aligner: bismark
 igenomes_ignore: true
 
-# Trimming: Trim Galore, Q20 (default) and min length 20, as in 02_trim.py
+# Trimming: Trim Galore, Q20 (default) and min length 20, as in the trim stage
 length_trim: 20
 
-# Methylation extraction, as in 07_extract_methylation.py
+# Methylation extraction, as in the extract stage
 comprehensive: true
 cytosine_report: true
 no_overlap: true
 
-# nf-core ignores 2 bp at the R2 ends by default; 07 ignores nothing.
+# nf-core ignores 2 bp at the R2 ends by default; custom ignores nothing.
 # Set to 0 so that the features are comparable. Check the M-bias
 # plots in MultiQC before changing them.
 ignore_r1: 0

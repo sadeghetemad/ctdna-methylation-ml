@@ -1,38 +1,34 @@
+"""
+Step 04: region-level methylation matrix.
+
+Sums the per-CpG Bismark calls of each cohort run (written by step 03)
+within each ELSA region into a coverage-weighted methylation fraction.
+"""
+
 import argparse
 import sys
 
 import numpy as np
 import pandas as pd
 
-from utils import ROOT, METH_DIR, COV_SUFFIX, FEATURES_DIR
+from utils import (
+    COHORT_FILE, COHORT, TARGET_BED, EXPECTED_REGIONS,
+    METH_DIR, COV_SUFFIX, FEATURES_DIR,
+)
 
 
 # ============================================================
 # Paths
 # ============================================================
 
-TARGET_FILE = (
-    ROOT
-    / "metadata/targets/ELSA_plasma_2473_hg19.bed"
-)
-
-COHORT_FILE = (
-    ROOT
-    / "metadata/test_cohort_10.tsv"
-)
-
-OUT_DIR = FEATURES_DIR    # features/ (classic) or features/nfcore/
+OUT_DIR = FEATURES_DIR    # features/ (custom) or features/nfcore/
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Output names follow the cohort file: test_cohort_10 -> test_cohort_10_*.tsv
-PREFIX = COHORT_FILE.stem
-
-FEATURES_OUT = OUT_DIR / f"{PREFIX}_features.tsv"      # methylation fraction
-COVERAGE_OUT = OUT_DIR / f"{PREFIX}_coverage.tsv"      # methylated + unmethylated calls
-N_CPG_OUT = OUT_DIR / f"{PREFIX}_n_cpg.tsv"            # observed CpG sites
-MISSING_OUT = OUT_DIR / f"{PREFIX}_missing_samples.tsv"
-
-EXPECTED_REGIONS = 2473
+FEATURES_OUT = OUT_DIR / f"{COHORT}_features.tsv"      # methylation fraction
+COVERAGE_OUT = OUT_DIR / f"{COHORT}_coverage.tsv"      # methylated + unmethylated calls
+N_CPG_OUT = OUT_DIR / f"{COHORT}_n_cpg.tsv"            # observed CpG sites
+MISSING_OUT = OUT_DIR / f"{COHORT}_missing_samples.tsv"
 
 META_COLUMNS = ["run_id", "sample_id", "ml_label"]
 
@@ -69,7 +65,7 @@ def normalize_chromosome(chrom):
 def load_targets():
 
     df = pd.read_csv(
-        TARGET_FILE,
+        TARGET_BED,
         sep="\t",
         header=None,
     )
@@ -118,8 +114,8 @@ def load_targets():
 
 def find_coverage_file(run_id):
     """
-    Exact file name produced by 07_extract_methylation.py (classic)
-    or linked by nf_methylseq.py (nfcore).
+    Exact file name written by 03_process_custom.py (custom mode)
+    or linked by 03_process_nfcore.py (nfcore mode).
 
     No wildcard fallback: a pattern such as *SRR123*.cov.gz could
     silently pick up a different run (e.g. SRR1234).
@@ -428,7 +424,7 @@ def main():
         if args.strict:
             raise RuntimeError(
                 "Missing samples with --strict. "
-                "Run steps 001-07 for them first."
+                "Run steps 01-03 for them first."
             )
 
     else:

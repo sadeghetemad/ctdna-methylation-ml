@@ -1,23 +1,23 @@
+"""
+Step 05: QC tables of the feature matrix written by step 04.
+"""
+
 import numpy as np
 import pandas as pd
 
-from utils import FEATURES_DIR, FEATURE_QC_DIR
+from utils import COHORT, EXPECTED_REGIONS, FEATURES_DIR, FEATURE_QC_DIR
 
 
 # ============================================================
 # Paths
 # ============================================================
 
-FEATURE_FILE = (
-    FEATURES_DIR / "test_cohort_10_features.tsv"
-)
+FEATURE_FILE = FEATURES_DIR / f"{COHORT}_features.tsv"
 
-# Written by 08_build_features.py (reads per region); optional.
-COVERAGE_FILE = (
-    FEATURES_DIR / "test_cohort_10_coverage.tsv"
-)
+# Reads per region, also written by step 04; optional.
+COVERAGE_FILE = FEATURES_DIR / f"{COHORT}_coverage.tsv"
 
-OUT_DIR = FEATURE_QC_DIR    # results/feature_qc/ (classic) or .../nfcore/
+OUT_DIR = FEATURE_QC_DIR    # results/feature_qc/ (custom) or .../nfcore/
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -56,9 +56,9 @@ def main():
     print(f"Samples:  {len(df)}")
     print(f"Features: {len(feature_cols)}")
 
-    if len(feature_cols) != 2473:
+    if len(feature_cols) != EXPECTED_REGIONS:
         raise ValueError(
-            f"Expected 2473 ELSA features, "
+            f"Expected {EXPECTED_REGIONS} ELSA features, "
             f"found {len(feature_cols)}"
         )
 

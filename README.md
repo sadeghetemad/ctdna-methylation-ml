@@ -15,8 +15,8 @@
 - [Pipeline at a Glance](#-pipeline-at-a-glance)
 - [Installation](#-installation)
 - [Quick Start](#-quick-start)
-- [Modes: Classic and nf-core](#-modes-classic-and-nf-core)
-- [Scripts](#-scripts)
+- [Modes: custom and nf-core](#-modes-custom-and-nf-core)
+- [Steps](#-steps)
 - [Machine Learning](#-machine-learning)
 - [Configuration](#%EF%B8%8F-configuration)
 - [Resuming, Logging and Errors](#-resuming-logging-and-errors)
@@ -36,22 +36,22 @@ This repository rebuilds the region-level methylation features used by the **ELS
 | 📍 **Features** | Coverage-weighted CpG methylation over the published ELSA plasma panel regions |
 | 🗺️ **Reference** | UCSC hg19 |
 
-Every step is a small standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
+The pipeline has six steps. Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
 
-The read processing (steps 01–07) can run in two **modes**: the `classic` Python scripts, or [nf-core/methylseq](https://nf-co.re/methylseq) (`nfcore`). Both feed the same feature and ML steps.
+The read processing (step 03) runs in one of two **modes**: `custom`, our own commands, or [nf-core/methylseq](https://nf-co.re/methylseq) (`nfcore`). Both feed the same feature and ML steps.
 
 ---
 
 ## 🗺️ Pipeline at a Glance
 
 ```text
- 📋 Metadata            📥 Reads               🔬 Alignment              📊 Features            🤖 ML
-┌──────────────┐    ┌──────────────┐    ┌───────────────────┐    ┌───────────────┐    ┌──────────────┐
-│ 0  metadata  │    │ 001 download │    │ 04 reference      │    │ 08 features   │    │ 10 ML dataset│
-│ 00 cohort    │ ─▶ │ 01  FastQC   │ ─▶ │ 05 align          │ ─▶ │ 09 feature QC │ ─▶ │ notebooks    │
-│              │    │ 02  trim     │    │ 06 dedup + filter │    │               │    │              │
-│              │    │ 03  FastQC   │    │ 07 methylation    │    │               │    │              │
-└──────────────┘    └──────────────┘    └───────────────────┘    └───────────────┘    └──────────────┘
+ 📋 Data              🗺️ Reference        🔬 Processing (step 03)             📊 Features         🤖 ML
+┌──────────────┐    ┌──────────────┐    ┌──────────────────────────────┐    ┌──────────────┐    ┌──────────────┐
+│ 01 metadata  │    │ 02 hg19 +    │    │ custom: FastQC → trim →      │    │ 04 features  │    │ 06 ML dataset│
+│    cohort    │ ─▶ │    Bismark   │ ─▶ │   align → dedup → filter →   │ ─▶ │ 05 feature QC│ ─▶ │ notebooks    │
+│    download  │    │    index     │    │   extract                    │    │              │    │              │
+│              │    │              │    │ nfcore: nf-core/methylseq    │    │              │    │              │
+└──────────────┘    └──────────────┘    └──────────────────────────────┘    └──────────────┘    └──────────────┘
 ```
 
 ---
@@ -83,69 +83,47 @@ conda activate ctdna10
 Run all commands from the project root. To run every step in order:
 
 ```bash
-python main.py                    # classic mode, all steps, stops at the first failure
-python main.py --mode nfcore      # nf-core/methylseq instead of steps 01-07
+python main.py                    # custom mode, all steps, stops at the first failure
+python main.py --mode nfcore      # nf-core/methylseq for step 03
 python main.py --list             # show the steps of a mode
-python main.py --from 05          # resume from a step
-python main.py --from 08 --to 10  # run a range of steps
+python main.py --from 03          # resume from a step
+python main.py --from 04 --to 06  # run a range of steps
 ```
 
-Or run the steps one by one (classic mode):
+Or run the steps one by one:
 
 ```bash
-# 📋 Metadata and cohort
-python scripts/0_prepare_metadata.py
-python scripts/00_select_samples.py
-
-# 📥 Reads and QC
-python scripts/001_download_fastq.py
-python scripts/01_fastqc.py
-python scripts/02_trim.py
-python scripts/03_fastqc_trimmed.py
-
-# 🔬 Reference (one time), alignment and methylation calling
-python scripts/04_prepare_references.py
-python scripts/05_align.py
-python scripts/06_dedup_filter.py
-python scripts/07_extract_methylation.py
-
-# 📊 Features and QC
-python scripts/08_build_features.py
-python scripts/09_feature_qc.py
-
-# 🤖 ML-ready dataset
-python scripts/10_prepare_ml_dataset.py
+python scripts/01_data.py              # 📋 metadata, cohort, FASTQ download
+python scripts/02_reference.py         # 🗺️ hg19 and Bismark index (one time)
+python scripts/03_process_custom.py    # 🔬 FASTQ -> per-CpG methylation calls
+python scripts/04_features.py          # 📊 region-level matrix
+python scripts/05_feature_qc.py        #    feature QC
+python scripts/06_ml_dataset.py        # 🤖 ML-ready dataset
 ```
 
 To set the number of threads (8 by default):
 
 ```bash
-CTDNA_THREADS=16 python scripts/05_align.py
+CTDNA_THREADS=16 python main.py
 ```
 
 ---
 
-## 🔀 Modes: Classic and nf-core
+## 🔀 Modes: custom and nf-core
 
-```text
-                         classic:  01 FastQC → 02 trim → 03 FastQC → 05 align → 06 dedup + filter → 07 methylation
- 0 → 00 → 001 → 04 ─▶                                                                                              ─▶ 08 → 09 → 10
-                         nfcore:   nf  nf-core/methylseq (FastQC, Trim Galore, Bismark, dedup, methylation, MultiQC)
-```
-
-| | `classic` (default) | `nfcore` |
+| | `custom` (default) | `nfcore` |
 |---|---|---|
-| Steps 01–07 | Python scripts `01`–`07` | `scripts/nf_methylseq.py` (step `nf`) runs nf-core/methylseq **4.2.0** |
+| Step 03 | `scripts/03_process_custom.py`: our own FastQC, Trim Galore, Bismark and samtools commands | `scripts/03_process_nfcore.py`: nf-core/methylseq **4.2.0** |
 | Needs | Tools from `environment.yml` | Nextflow (in `environment.yml`) and Docker, Singularity or Apptainer |
-| Coverage files for 08 | `data/methylation/<run>.filtered.namesort.bismark.cov.gz` | `data/nfcore/methylation/<run>.bismark.cov.gz` (links into the nf-core results) |
+| Coverage files for 04 | `data/methylation/<run>.filtered.namesort.bismark.cov.gz` | `data/nfcore/methylation/<run>.bismark.cov.gz` (links into the nf-core results) |
 | Features, QC, ML data | `features/`, `results/feature_qc/`, `notebooks/data/` | the same folders with an `nfcore/` subfolder |
 
-The two modes never overwrite each other, so you can run both and compare `features/` with `features/nfcore/`.
+Steps 01, 02 and 04–06 are the same in both modes. The two modes never overwrite each other, so you can run both and compare `features/` with `features/nfcore/`.
 
 `main.py --mode` sets the `CTDNA_MODE` environment variable for every step. To run a single step in nf-core mode by hand:
 
 ```bash
-CTDNA_MODE=nfcore python scripts/08_build_features.py
+CTDNA_MODE=nfcore python scripts/04_features.py
 ```
 
 ### Running in nf-core mode
@@ -160,14 +138,14 @@ python main.py --mode nfcore                          # Docker
 python main.py --mode nfcore --nf-profile singularity # Singularity
 
 # Only nf-core, then the features
-python main.py --mode nfcore --from nf --to nf
-python main.py --mode nfcore --from 08
+python main.py --mode nfcore --from 03 --to 03
+python main.py --mode nfcore --from 04
 ```
 
 Run long jobs inside `tmux` or `screen`. If the run stops, run the same command again: Nextflow resumes with `-resume`.
 
-The `nf` step:
-1. 📋 writes `data/nfcore/inputs/samplesheet.csv` from the cohort and `data/fastq/<run>_{1,2}.fastq.gz`. If a run has no FASTQ files, it stops and names the run.
+`03_process_nfcore.py`:
+1. 📋 writes `data/nfcore/inputs/samplesheet.csv` from the cohort runs that have both FASTQ files. Runs without them are left out with a warning.
 2. 🗺️ writes the panel BED with UCSC names (`chr1, …`) to match `hg19.fa`.
 3. ▶️ runs nf-core/methylseq with `config/methylseq_params.yaml` and `config/methylseq.config`. If `reference/hg19/Bisulfite_Genome` exists, it is reused through `--bismark_index`.
 4. 🔗 links each run's `.bismark.cov.gz` to `data/nfcore/methylation/`.
@@ -175,19 +153,19 @@ The `nf` step:
 | `main.py` option | Description |
 |---|---|
 | `--nf-profile` | Nextflow profile: `docker` (default), `singularity`, `apptainer`, `conda` |
-| `--build-index` | Let nf-core build its own Bismark index. Use this if alignment fails with the index from step 04 (built with Bismark v3) |
+| `--build-index` | Let nf-core build its own Bismark index. Use this if alignment fails with the index from step 02 (built with Bismark v3) |
 
 To check the inputs and print the Nextflow command without running it:
 
 ```bash
-python scripts/nf_methylseq.py --dry-run
+python scripts/03_process_nfcore.py --dry-run
 ```
 
 ### nf-core settings
 
-`config/methylseq_params.yaml` follows the classic scripts as closely as nf-core allows:
+`config/methylseq_params.yaml` follows the custom mode as closely as nf-core allows:
 
-| Step | Classic | nf-core |
+| Stage | custom | nf-core |
 |---|---|---|
 | Trimming | Trim Galore `--illumina -q 20 --length 20` | Trim Galore, Q20, `length_trim: 20`, adapter auto-detected |
 | Alignment | Bismark + Bowtie2 | `aligner: bismark` |
@@ -198,138 +176,75 @@ python scripts/nf_methylseq.py --dry-run
 | QC report | separate FastQC folders | one MultiQC report: `results/nfcore_methylseq/multiqc/multiqc_report.html` |
 | Targeted analysis | none | calls restricted to the ELSA regions (`run_targeted_sequencing`) |
 
-Because of the missing MAPQ filter, the features of the two modes are close but not identical.
+Because of the missing MAPQ filter, the features of the two modes are close but not identical. On the 9-sample test cohort, the per-sample correlation of the region methylation is 0.97–0.999, and the nf-core read depth is about 2–3× higher.
 
 `config/methylseq.config` limits every nf-core job to **8 CPUs, 28 GB and 72 h**. Edit it to match your machine.
 
 ---
 
-## 🧩 Scripts
+## 🧩 Steps
 
-### 📋 Metadata
+### 📋 `01_data.py`: metadata, cohort and download
 
-#### `0_prepare_metadata.py`: build labels, manifests and target regions
+Three stages, run in order. Select them with `--stages metadata cohort download`.
 
-Merges the SRA run table with the publication's supplementary tables. The outputs are:
-- clinical labels
-- a labeled sample manifest
-- the primary Stage I vs. control cohort
-- the panel target regions as a 0-based BED file
+1. **metadata**: merges the SRA run table with the publication's supplementary tables into clinical labels, sample manifests, the primary Stage I vs. control cohort (checked against the published counts) and the panel target regions as a 0-based BED file.
+2. **cohort**: draws a class-balanced, reproducible working cohort (5 + 5 runs, `random_state = 42`) from the primary cohort. Use it to develop and test on a small set before running at scale.
+3. **download**: asks the ENA API for the FASTQ URLs of each cohort run, downloads both mates, and checks the **file size and MD5** of each. A file that fails the check is deleted. Failed runs are listed in `logs/failed_downloads.tsv`; later steps leave them out with a warning. With `--strict`, a failed download stops the pipeline.
 
 ```bash
-python scripts/0_prepare_metadata.py
+python scripts/01_data.py
+python scripts/01_data.py --stages download
 ```
 
 | Output | Description |
 |---|---|
-| `metadata/ELSA_clinical_labels.tsv` | Per-sample clinical annotations and `ml_label` |
+| `metadata/ELSA_clinical_labels.tsv` | Per-sample clinical annotations |
 | `metadata/sample_manifest.tsv`, `sample_manifest_labeled.tsv` | SRA runs, without and with labels |
-| `metadata/primary_cohort_stage1_vs_control.tsv` | Analysis cohort |
+| `metadata/primary_cohort_stage1_vs_control.tsv` | Analysis cohort, with `ml_label` |
 | `metadata/primary_cohort_SRR_Acc_List.txt` | Run accessions of the cohort |
 | `metadata/targets/ELSA_plasma_2473_hg19.bed` | Target regions (BED, 0-based) |
 | `metadata/targets/ELSA_plasma_2473_regions.tsv` | Target regions in publication coordinates |
-
-#### `00_select_samples.py`: select a balanced working cohort
-
-Draws a class-balanced, reproducible subset (`random_state = 42`) from the primary cohort. Use it to develop and test on a small set before running at scale.
-
-```bash
-python scripts/00_select_samples.py
-```
-
-**Output:** `metadata/<cohort>.tsv` and `metadata/<cohort>_SRR.txt`
+| `metadata/<cohort>.tsv`, `<cohort>_SRR.txt` | Working cohort |
+| `data/fastq/<run>_{1,2}.fastq.gz` | Paired FASTQ files |
 
 ---
 
-### 📥 Reads and Quality Control
+### 🗺️ `02_reference.py`: hg19 reference and Bismark index (one time)
 
-#### `001_download_fastq.py`: download paired FASTQ files from ENA
-
-Asks the ENA API for the FASTQ URLs of each run, downloads both mates, and checks the **file size and MD5** of each. A file that fails the check is deleted and reported. Runs that fail are listed in `logs/failed_downloads.tsv`.
-
-```bash
-python scripts/001_download_fastq.py
-```
-
-**Output:** `data/fastq/<run>_1.fastq.gz`, `data/fastq/<run>_2.fastq.gz`
-
-#### `01_fastqc.py`: QC of the raw reads
-
-```bash
-python scripts/01_fastqc.py
-```
-
-**Output:** `results/fastqc_raw/*_fastqc.{html,zip}`
-
-#### `02_trim.py`: adapter and quality trimming
-
-Runs Trim Galore in paired mode with Illumina adapters, a Q20 quality cutoff and a 20 bp minimum read length.
-
-```bash
-python scripts/02_trim.py
-```
-
-**Output:** `data/trimmed/<run>_{1,2}_val_{1,2}.fq.gz` and the trimming reports
-
-#### `03_fastqc_trimmed.py`: QC of the trimmed reads
-
-```bash
-python scripts/03_fastqc_trimmed.py
-```
-
-**Output:** `results/fastqc_trimmed/`
-
----
-
-### 🔬 Alignment and Methylation Calling
-
-#### `04_prepare_references.py`: hg19 reference and Bismark index (one time)
-
-Downloads the UCSC hg19 FASTA and builds the bisulfite-converted Bowtie2 index with `bismark prepare`. If the reference or the index already exists, that part is skipped.
-
-```bash
-python scripts/04_prepare_references.py
-```
+Downloads the UCSC hg19 FASTA and builds the bisulfite-converted Bowtie2 index with `bismark prepare`. If the reference or the index already exists, that part is skipped. Both modes use this index.
 
 **Output:** `reference/hg19/hg19.fa`, `reference/hg19/Bisulfite_Genome/`
 
-#### `05_align.py`: bisulfite alignment
+---
 
-Aligns the paired-end reads with Bismark (Bowtie2 backend).
+### 🔬 `03_process_custom.py`: FASTQ to per-CpG methylation calls (custom mode)
 
-```bash
-python scripts/05_align.py
-```
+Each cohort run with FASTQ files goes through these stages in order. In nfcore mode, `03_process_nfcore.py` runs instead (see [Modes](#-modes-custom-and-nf-core)).
 
-**Output:** `data/aligned/<run>_pe.bam`, `data/aligned/<run>_PE_report.txt`
+| Stage | What it does | Output |
+|---|---|---|
+| `fastqc` | FastQC of the raw reads | `results/fastqc_raw/` |
+| `trim` | Trim Galore, paired, Illumina adapters, Q20, min length 20 | `data/trimmed/<run>_{1,2}_val_{1,2}.fq.gz` |
+| `fastqc_trimmed` | FastQC of the trimmed reads | `results/fastqc_trimmed/` |
+| `align` | Bismark with the Bowtie2 backend | `data/aligned/<run>_pe.bam`, `<run>_PE_report.txt` |
+| `dedup` | `bismark dedup` removes PCR duplicates | `data/dedup/` |
+| `filter` | Keeps MAPQ ≥ 20 (`MIN_MAPQ`), proper pairs (`-f 2`), drops unmapped, secondary and supplementary alignments (`-F 0x904`); writes a sorted, indexed BAM and a name-sorted BAM | `data/filtered/` |
+| `extract` | `bismark extract --comprehensive --cytosine_report` | `data/methylation/<run>.filtered.namesort.bismark.cov.gz`, CpG report, M-bias |
 
-#### `06_dedup_filter.py`: deduplication and read filtering
-
-1. 🧹 Removes PCR duplicates with `bismark dedup`.
-2. 🎚️ Keeps reads with MAPQ ≥ 20 that are in proper pairs (`-f 2`), and drops unmapped, secondary and supplementary alignments (`-F 0x904`).
-3. 📑 Writes a coordinate-sorted, indexed BAM and a name-sorted BAM for methylation extraction.
-
-```bash
-python scripts/06_dedup_filter.py
-```
-
-**Output:** `data/dedup/`, `data/filtered/<run>.filtered.bam(.bai)`, `data/filtered/<run>.filtered.namesort.bam`
-
-#### `07_extract_methylation.py`: per-CpG methylation calls
-
-Runs `bismark extract` on the name-sorted BAMs.
+When a stage fails, the rest of that run is skipped and the next run starts.
 
 ```bash
-python scripts/07_extract_methylation.py
+python scripts/03_process_custom.py
+python scripts/03_process_custom.py --stages dedup filter extract   # only some stages
+python scripts/03_process_custom.py --runs SRR9982549               # only some runs
 ```
-
-**Output:** `data/methylation/<run>.filtered.namesort.bismark.cov.gz` (used downstream), plus the CpG report, M-bias and context summaries
 
 ---
 
 ### 📊 Features
 
-#### `08_build_features.py`: region-level methylation matrix
+#### `04_features.py`: region-level methylation matrix
 
 Sums the CpG calls within each panel region into a **coverage-weighted methylation fraction**:
 
@@ -344,8 +259,8 @@ methylation_fraction = Σ methylated / Σ (methylated + unmethylated)
 - ⚠️ Cohort samples without a coverage file are listed in `<cohort>_missing_samples.tsv`. With `--strict`, a missing sample stops the script with an error.
 
 ```bash
-python scripts/08_build_features.py            # warn about missing samples
-python scripts/08_build_features.py --strict   # fail if any sample is missing
+python scripts/04_features.py            # warn about missing samples
+python scripts/04_features.py --strict   # fail if any sample is missing
 ```
 
 | Output | Content |
@@ -354,7 +269,7 @@ python scripts/08_build_features.py --strict   # fail if any sample is missing
 | `features/<cohort>_coverage.tsv` | Methylated + unmethylated calls per region |
 | `features/<cohort>_n_cpg.tsv` | Observed CpG sites per region |
 
-#### `09_feature_qc.py`: feature-matrix QC
+#### `05_feature_qc.py`: feature-matrix QC
 
 Writes QC tables for:
 - missingness by sample, region and label
@@ -362,7 +277,7 @@ Writes QC tables for:
 - per-sample methylation and depth summaries
 
 ```bash
-python scripts/09_feature_qc.py
+python scripts/05_feature_qc.py
 ```
 
 **Output:** `results/feature_qc/*.tsv`
@@ -371,7 +286,7 @@ python scripts/09_feature_qc.py
 
 ### 🤖 ML Dataset
 
-#### `10_prepare_ml_dataset.py`: build the ML-ready dataset
+#### `06_ml_dataset.py`: build the ML-ready dataset
 
 Applies **label-free** filters only:
 1. It masks values below a minimum read depth.
@@ -381,8 +296,8 @@ Applies **label-free** filters only:
 Imputation, scaling and feature selection are deliberately left to the modelling code, where they run **inside** the cross-validation folds.
 
 ```bash
-python scripts/10_prepare_ml_dataset.py
-python scripts/10_prepare_ml_dataset.py --min-depth 30 --max-missing 0.1 --out-dir notebooks/data
+python scripts/06_ml_dataset.py
+python scripts/06_ml_dataset.py --min-depth 30 --max-missing 0.1 --out-dir notebooks/data
 ```
 
 | Option | Default | Description |
@@ -432,26 +347,26 @@ The notebooks read `notebooks/data/`. For the nf-core mode dataset, set `DATA_DI
 
 | Setting | Where | Default |
 |---|---|---|
-| Mode | `main.py --mode`, or the `CTDNA_MODE` environment variable (`scripts/utils.py`) | `classic` |
-| Threads | `CTDNA_THREADS` environment variable (`scripts/utils.py`) | `8` |
-| Cohort file | `COHORT_FILE` in `001`, `08` and `nf_methylseq`, `FEATURE_FILE` / `COVERAGE_FILE` in `09`, `COHORT` in `10` | working cohort from `00` |
-| Cohort size / seed | `00_select_samples.py` | balanced, `random_state = 42` |
-| MAPQ threshold | `MIN_MAPQ` in `06_dedup_filter.py` | `20` |
-| Trimming | `02_trim.py` | Q20, Illumina adapter, min length 20 |
+| Mode | `main.py --mode`, or the `CTDNA_MODE` environment variable (`scripts/utils.py`) | `custom` |
+| Threads | `main.py --threads`, or the `CTDNA_THREADS` environment variable (`scripts/utils.py`) | `8` |
+| Cohort file | `COHORT_FILE` in `scripts/utils.py`, read by every step | `metadata/test_cohort_10.tsv` |
+| Cohort size / seed | `N_PER_CLASS`, `SEED` in `01_data.py` | 5 + 5, `42` |
+| MAPQ threshold | `MIN_MAPQ` in `03_process_custom.py` | `20` |
+| Trimming | `trim()` in `03_process_custom.py` | Q20, Illumina adapter, min length 20 |
 | nf-core parameters | `config/methylseq_params.yaml` | see [nf-core settings](#nf-core-settings) |
 | nf-core resources | `config/methylseq.config` | 8 CPUs, 28 GB, 72 h per job |
 
-To run the **full cohort**, point the cohort settings at `metadata/primary_cohort_stage1_vs_control.tsv`.
+To run the **full cohort**, point `COHORT_FILE` at `metadata/primary_cohort_stage1_vs_control.tsv`.
 
 ---
 
 ## 🔁 Resuming, Logging and Errors
 
-- ♻️ **Resumable.** A step skips a run only when that run's *final* outputs exist. For example, a filtered BAM counts only if its `.bai` index also exists. Runs that were interrupted are processed again.
+- ♻️ **Resumable.** A step or stage skips a run only when that run's *final* outputs exist. For example, a filtered BAM counts only if its `.bai` index also exists. Runs that were interrupted are processed again.
 - 🛡️ **Atomic writes.** samtools writes to `*.tmp.bam` and renames the file only when it succeeds.
-- 📝 **Logs.** Each tool writes to `logs/<run>.<step>.log`, and ENA responses are saved in `logs/ena/`.
+- 📝 **Logs.** Each tool writes to `logs/<run>.<stage>.log`, and ENA responses are saved in `logs/ena/`.
 - 🚦 **Exit codes.** When a run fails, the step continues with the remaining runs, prints a summary and exits with code `1`. You can chain the steps safely with `&&` or a workflow manager.
-- 🔄 **Rerunning.** To rerun a step for a sample, delete that sample's outputs for that step.
+- 🔄 **Rerunning.** To rerun a stage for a sample, delete that sample's outputs for that stage.
 
 ---
 
@@ -461,10 +376,16 @@ To run the **full cohort**, point the cohort settings at `metadata/primary_cohor
 ctdna-methylation-ml/
 ├── 📄 README.md
 ├── 📄 environment.yml            # conda environment
-├── 📄 main.py                    # runs all steps in order (--mode classic | nfcore)
-├── 📂 scripts/                   # numbered pipeline steps
-│   ├── nf_methylseq.py           # nfcore mode: nf-core/methylseq for steps 01-07
-│   └── utils.py                  # shared paths, mode, threads, logged command runner
+├── 📄 main.py                    # runs all steps in order (--mode custom | nfcore)
+├── 📂 scripts/
+│   ├── 01_data.py                # metadata, cohort, FASTQ download
+│   ├── 02_reference.py           # hg19 and Bismark index
+│   ├── 03_process_custom.py      # custom mode: FASTQ -> methylation calls
+│   ├── 03_process_nfcore.py      # nfcore mode: nf-core/methylseq
+│   ├── 04_features.py            # region-level matrix
+│   ├── 05_feature_qc.py          # feature QC
+│   ├── 06_ml_dataset.py          # ML-ready dataset
+│   └── utils.py                  # shared paths, mode, cohort, logged command runner
 ├── 📂 config/                    # nf-core/methylseq parameters and resources
 ├── 📂 metadata/
 │   ├── raw/                      # SRA run table (input)
@@ -496,18 +417,18 @@ ctdna-methylation-ml/
 |---|---|
 | hg19 FASTA + Bismark index | ~18 GB (one time) |
 | Intermediate files per sample | ~10 GB |
-| nf-core work directory (`data/nfcore/work/`) | about the same as the classic intermediates; delete it once `results/nfcore_methylseq/` is complete (resuming is then no longer possible) |
+| nf-core work directory (`data/nfcore/work/`) | about the same as the custom intermediates; delete it once `results/nfcore_methylseq/` is complete (resuming is then no longer possible) |
 
 Once a sample has its `.bismark.cov.gz`, you can remove these files:
 
 | Path | Needed later? |
 |---|---|
 | `data/methylation/CHG_*`, `CHH_*` | ❌ Only CpG context is used |
-| `data/methylation/*.bedGraph.gz` | ❌ Step 08 reads `.bismark.cov.gz` |
+| `data/methylation/*.bedGraph.gz` | ❌ Step 04 reads `.bismark.cov.gz` |
 | `reference/hg19/hg19.fa.gz` | ❌ Once `hg19.fa` is extracted |
-| `data/filtered/*.namesort.bam` | ⚠️ Only to rerun step 07 |
-| `data/trimmed/`, `data/aligned/`, `data/dedup/` | ⚠️ Only to rerun steps 05–07 |
+| `data/filtered/*.namesort.bam` | ⚠️ Only to rerun the `extract` stage |
+| `data/trimmed/`, `data/aligned/`, `data/dedup/` | ⚠️ Only to rerun the `align` to `extract` stages |
 
 > [!TIP]
-> Keep `data/methylation/*.CpG_report.txt.gz`: step 07 checks for it to decide whether a sample is already done.
+> Keep `data/methylation/*.CpG_report.txt.gz`: the `extract` stage checks for it to decide whether a sample is already done.
 > Always keep `data/fastq/`, `data/methylation/*.bismark.cov.gz`, `metadata/` and `features/`. Everything else can be regenerated.

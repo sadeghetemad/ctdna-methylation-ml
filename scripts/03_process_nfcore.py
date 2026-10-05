@@ -1,21 +1,21 @@
 """
-nfcore mode: run nf-core/methylseq in place of steps 01-07.
+Step 03, nfcore mode: nf-core/methylseq in place of 03_process_custom.py.
 
-    1. Writes the samplesheet from the cohort and the FASTQ files of 001
-       (runs without both FASTQ files are left out with a warning).
+    1. Writes the samplesheet from the cohort runs with FASTQ files
+       (runs without them are left out with a warning).
     2. Writes the ELSA target BED with UCSC chromosome names (chr1, ...).
     3. Runs nf-core/methylseq (FastQC, Trim Galore, Bismark, dedup,
        methylation extraction, MultiQC) with config/methylseq_*.
     4. Links each run's .bismark.cov.gz to data/nfcore/methylation/,
-       where 08_build_features.py reads it in nfcore mode.
+       where 04_features.py reads it in nfcore mode.
 
 Usually run through main.py:
     python main.py --mode nfcore
 
 On its own:
-    python scripts/nf_methylseq.py --profile docker
-    python scripts/nf_methylseq.py --dry-run
-    python scripts/nf_methylseq.py --collect-only
+    python scripts/03_process_nfcore.py --profile docker
+    python scripts/03_process_nfcore.py --dry-run
+    python scripts/03_process_nfcore.py --collect-only
 """
 
 import argparse
@@ -26,17 +26,11 @@ import shutil
 import subprocess
 import sys
 
-from utils import ROOT, NFCORE_COV
+from utils import ROOT, TARGET_BED, REF_DIR, FASTA, NFCORE_COV, fastq_pair, runs_with_fastq
 
 
 PIPELINE = "nf-core/methylseq"
 REVISION = "4.2.0"
-
-COHORT_FILE = ROOT / "metadata/test_cohort_10.tsv"
-FASTQ_DIR = ROOT / "data/fastq"
-TARGET_FILE = ROOT / "metadata/targets/ELSA_plasma_2473_hg19.bed"
-REF_DIR = ROOT / "reference/hg19"
-FASTA = REF_DIR / "hg19.fa"
 
 PARAMS_FILE = ROOT / "config/methylseq_params.yaml"
 CONFIG_FILE = ROOT / "config/methylseq.config"
@@ -47,7 +41,7 @@ SAMPLESHEET = NF_DIR / "inputs/samplesheet.csv"
 TARGETS_UCSC = NF_DIR / "inputs/ELSA_plasma_2473_hg19.ucsc.bed"
 WORK_DIR = NF_DIR / "work"
 
-# Where 08_build_features.py looks in nfcore mode
+# Where 04_features.py looks in nfcore mode
 COV_DIR, COV_SUFFIX = NFCORE_COV
 
 # nf-core/methylseq 4.2.0 includes conf/aws/batch/nextflow.config, a file
@@ -85,44 +79,6 @@ def parse_args():
 # Inputs
 # ============================================================
 
-def read_run_ids():
-
-    if not COHORT_FILE.exists():
-        sys.exit(f"Missing cohort file: {COHORT_FILE}")
-
-    with COHORT_FILE.open(newline="") as f:
-        rows = list(csv.DictReader(f, delimiter="\t"))
-
-    if not rows or "run_id" not in rows[0]:
-        sys.exit(f"No run_id column in {COHORT_FILE}")
-
-    return [row["run_id"].strip() for row in rows if row["run_id"].strip()]
-
-
-def fastq_pair(run_id):
-    return FASTQ_DIR / f"{run_id}_1.fastq.gz", FASTQ_DIR / f"{run_id}_2.fastq.gz"
-
-
-def runs_with_fastq(run_ids):
-    """
-    Cohort runs with both FASTQ files. Runs without them (e.g. a failed
-    download in 001) are left out with a warning, as 08 does without --strict.
-    """
-
-    present = [r for r in run_ids if all(p.exists() for p in fastq_pair(r))]
-    missing = [r for r in run_ids if r not in present]
-
-    if missing:
-        print(f"WARNING: FASTQ files missing for {len(missing)} run(s), left out: "
-              f"{', '.join(missing)}")
-        print("         Run python scripts/001_download_fastq.py to add them.")
-
-    if not present:
-        sys.exit(f"No run of {COHORT_FILE.name} has both FASTQ files in {FASTQ_DIR}")
-
-    return present
-
-
 def write_samplesheet(run_ids):
 
     rows = []
@@ -144,15 +100,15 @@ def write_samplesheet(run_ids):
 def write_ucsc_targets():
     """The panel BED uses 1, 2, ...; hg19.fa uses chr1, chr2, ..."""
 
-    if not TARGET_FILE.exists():
+    if not TARGET_BED.exists():
         sys.exit(
-            f"Missing target file: {TARGET_FILE}\n"
-            "Run: python scripts/0_prepare_metadata.py"
+            f"Missing target file: {TARGET_BED}\n"
+            "Run: python scripts/01_data.py"
         )
 
     TARGETS_UCSC.parent.mkdir(parents=True, exist_ok=True)
 
-    with TARGET_FILE.open() as src, TARGETS_UCSC.open("w") as dst:
+    with TARGET_BED.open() as src, TARGETS_UCSC.open("w") as dst:
         for line in src:
             if not line.strip() or line.startswith(("#", "track", "browser")):
                 continue
@@ -179,7 +135,7 @@ def nextflow_command(args):
     if not FASTA.exists():
         sys.exit(
             f"Missing reference: {FASTA}\n"
-            "Run: python scripts/04_prepare_references.py"
+            "Run: python scripts/02_reference.py"
         )
 
     cmd = [
@@ -207,7 +163,7 @@ def nextflow_command(args):
 
 
 # ============================================================
-# Collect coverage files for 08_build_features.py
+# Collect coverage files for 04_features.py
 # ============================================================
 
 def collect_coverage(run_ids):
@@ -281,7 +237,7 @@ def check_docker(profile):
 def main():
 
     args = parse_args()
-    run_ids = runs_with_fastq(read_run_ids())
+    run_ids = runs_with_fastq()
 
     if not args.collect_only:
 
