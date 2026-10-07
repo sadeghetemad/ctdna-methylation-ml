@@ -22,10 +22,11 @@ LOG_DIR = ROOT / "logs"
 THREADS = int(os.environ.get("CTDNA_THREADS", "8"))
 
 # How step 03 turns FASTQ into per-CpG methylation calls; main.py --mode sets it:
-#   custom : our own commands (03_process_custom.py)
-#   nfcore : nf-core/methylseq (03_process_nfcore.py)
+#   custom     : our own commands (03_process_custom.py)
+#   nfcore     : nf-core/methylseq with Bismark (03_process_nfcore.py)
+#   nfcore-gpu : nf-core/methylseq with bwa-meth on the GPU (Parabricks) and MethylDackel
 # Override without editing code:  CTDNA_MODE=nfcore python scripts/04_features.py
-MODES = ("custom", "nfcore")
+MODES = ("custom", "nfcore", "nfcore-gpu")
 MODE = os.environ.get("CTDNA_MODE", "custom")
 
 if MODE not in MODES:
@@ -48,15 +49,52 @@ FASTQ_DIR = ROOT / "data/fastq"
 REF_DIR = ROOT / "reference/hg19"
 FASTA = REF_DIR / "hg19.fa"
 
-# Per-CpG Bismark coverage files, <dir>/<run><suffix>, read by 04_features.py
-CUSTOM_COV = (ROOT / "data/methylation", ".filtered.namesort.bismark.cov.gz")
-NFCORE_COV = (ROOT / "data/nfcore/methylation", ".bismark.cov.gz")
+# Per-CpG coverage files in Bismark .cov format, <dir>/<run><suffix>, read by
+# 04_features.py. The nf-core modes link (Bismark) or convert (MethylDackel) them.
+COV_FILES = {
+    "custom": (ROOT / "data/methylation", ".filtered.namesort.bismark.cov.gz"),
+    "nfcore": (ROOT / "data/nfcore/methylation", ".bismark.cov.gz"),
+    "nfcore-gpu": (ROOT / "data/nfcore-gpu/methylation", ".bismark.cov.gz"),
+}
 
-METH_DIR, COV_SUFFIX = CUSTOM_COV if MODE == "custom" else NFCORE_COV
+# nf-core results of the two nf-core modes
+NFCORE_RESULTS = {
+    "nfcore": ROOT / "results/nfcore_methylseq",
+    "nfcore-gpu": ROOT / "results/nfcore_gpu_methylseq",
+}
+
+# Deduplicated (or duplicate-marked), coordinate-sorted, indexed BAMs,
+# <dir>/<run><suffix>, read by 05_read_features.py
+BAM_FILES = {
+    "custom": (ROOT / "data/filtered", ".filtered.bam"),
+    "nfcore": (NFCORE_RESULTS["nfcore"] / "bismark/deduplicated", ".deduplicated.sorted.bam"),
+    "nfcore-gpu": (NFCORE_RESULTS["nfcore-gpu"] / "bwameth/deduplicated", ".markdup.sorted.bam"),
+}
+
+METH_DIR, COV_SUFFIX = COV_FILES[MODE]
+BAM_DIR, BAM_SUFFIX = BAM_FILES[MODE]
+
+# The first bp of every R2 are filled in without bisulfite conversion by the
+# ELSA library prep and look ~90% methylated; every methylation caller
+# ignores them (Bismark --ignore_r2, MethylDackel --nOT/--nOB, step 05).
+IGNORE_R2_END = 10
+
+# Read-level region features of 05_read_features.py -> the fragment count
+# that supports each value; 07_ml_dataset.py masks values with low support.
+READ_FEATURES = {
+    "meth": "n_calls",                  # methylation fraction, artifact-free X_methylation
+    "frac_meth": "n_frag",              # fragments with >= 80% methylated CpGs
+    "frac_meth_short": "n_frag_short",  # the same, short fragments only
+    "mhl": "n_frag",                    # methylation haplotype load
+    "pdr": "n_frag4",                   # proportion of discordant reads
+    "entropy": "n_frag4",               # 4-CpG pattern entropy
+    "frac_short": "n_frag_all",         # short fragments among all fragments
+}
+READ_COUNTS = ("n_calls", "n_frag_all", "n_frag", "n_frag4", "n_frag_short")
 
 
 def mode_dir(path):
-    """Output directory of steps 04-06: custom keeps the path, nfcore adds /nfcore."""
+    """Output directory of steps 04-07: custom keeps the path, the others add /<mode>."""
     path = ROOT / path
     return path if MODE == "custom" else path / MODE
 
@@ -64,6 +102,14 @@ def mode_dir(path):
 FEATURES_DIR = mode_dir("features")
 FEATURE_QC_DIR = mode_dir("results/feature_qc")
 ML_DATA_DIR = mode_dir("notebooks/data")
+
+# Sample-level features of 05_read_features.py (frag_*) and its QC columns
+SAMPLE_FEATURES_FILE = FEATURES_DIR / f"{COHORT}_sample_features.tsv"
+
+
+def read_feature_file(name):
+    """Sample x region matrix of a READ_FEATURES / READ_COUNTS column."""
+    return FEATURES_DIR / f"{COHORT}_read_{name}.tsv"
 
 
 # ============================================================

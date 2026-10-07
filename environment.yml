@@ -16,10 +16,12 @@ dependencies:
   - bowtie2
   - samtools
   - multiqc
-  # nfcore mode (main.py --mode nfcore); containers need Docker/Singularity separately
+  - pysam           
+  # nfcore mode
   - nextflow>=24.10.5
   # analysis / ML notebooks
   - scipy
+  - statsmodels
   - scikit-learn>=1.4
   - matplotlib
   - jupyterlab

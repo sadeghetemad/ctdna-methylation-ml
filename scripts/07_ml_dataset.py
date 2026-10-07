@@ -1,15 +1,21 @@
 """
-Step 06: the ML-ready dataset used by notebooks/02_ML_baseline.ipynb.
+Step 07: the ML-ready dataset used by notebooks/02_ML_baseline.ipynb.
 
-Inputs (from 04_features.py):
-  features/<cohort>_features.tsv    methylation fraction per sample x region
-  features/<cohort>_coverage.tsv    methylation calls per sample x region
-  features/<cohort>_n_cpg.tsv       observed CpG sites per sample x region
+Inputs:
+  features/<cohort>_features.tsv    methylation fraction per sample x region (04)
+  features/<cohort>_coverage.tsv    methylation calls per sample x region (04)
+  features/<cohort>_n_cpg.tsv       observed CpG sites per sample x region (04)
+  features/<cohort>_read_*.tsv      read-level features and their fragment counts (05)
+  features/<cohort>_sample_features.tsv  fragment-length features per sample (05)
   metadata/<cohort>.tsv             clinical / SRA metadata
 
 Outputs (notebooks/data/):
   X_methylation.tsv   sample_id x kept regions, low-depth values set to NaN
   X_coverage.tsv      same shape, methylation calls (for weighting / QC)
+  X_<feature>.tsv     one per read-level feature of step 05 (frac_meth, mhl, ...),
+                      values with fewer than --min-frags fragments set to NaN,
+                      regions filtered like X_methylation
+  X_sample.tsv        sample-level fragment-length features (frag_*)
   samples.tsv         labels + covariates, one row per sample in X
   regions.tsv         all 2473 regions, with QC stats and kept/drop reason
   dataset_info.json   parameters and counts
@@ -32,7 +38,10 @@ import sys
 import numpy as np
 import pandas as pd
 
-from utils import ROOT, MODE, COHORT, COHORT_FILE, TARGET_BED, FEATURES_DIR, ML_DATA_DIR
+from utils import (
+    ROOT, MODE, COHORT, COHORT_FILE, TARGET_BED, FEATURES_DIR, ML_DATA_DIR,
+    READ_FEATURES, SAMPLE_FEATURES_FILE, read_feature_file,
+)
 
 
 FEATURE_FILE = FEATURES_DIR / f"{COHORT}_features.tsv"
@@ -84,6 +93,13 @@ def parse_args():
              "after depth masking (default: 0.2).",
     )
     p.add_argument(
+        "--min-frags",
+        type=int,
+        default=10,
+        help="Set a read-level value to NaN if fewer fragments support it "
+             "(default: 10).",
+    )
+    p.add_argument(
         "--out-dir",
         type=Path,
         default=ML_DATA_DIR,
@@ -103,6 +119,63 @@ def load_matrix(path):
     values.index.name = "sample_id"
 
     return meta, values
+
+
+def region_filter(X, max_missing):
+    """Label-free region filter: drop reason per column ('' = kept)."""
+    return pd.Series(
+        np.where(
+            X.isna().mean(axis=0) > max_missing,
+            f"missing>{max_missing}",
+            np.where(X.nunique(axis=0, dropna=True) <= 1, "constant", ""),
+        ),
+        index=X.columns,
+    )
+
+
+def read_feature_sets(index, args):
+    """
+    X_<feature> of step 05, aligned to the samples of X_methylation.
+    Values with fewer than --min-frags supporting fragments become NaN.
+    """
+
+    sets = {}
+
+    for name, support in READ_FEATURES.items():
+
+        if not (read_feature_file(name).exists() and read_feature_file(support).exists()):
+            print(f"  {name:<16} not found; run 05_read_features.py")
+            continue
+
+        _, values = load_matrix(read_feature_file(name))
+        _, count = load_matrix(read_feature_file(support))
+
+        missing_samples = index.difference(values.index)
+        if len(missing_samples):
+            print(f"  {name:<16} no read features for {', '.join(missing_samples)}")
+
+        values = values.reindex(index)
+        count = count.reindex(index)
+
+        X = values.mask(count < args.min_frags)
+        drop = region_filter(X, args.max_missing)
+        X = X.loc[:, drop == ""]
+
+        sets[name] = {
+            "X": X,
+            "info": {
+                "support": support,
+                "n_regions_kept": int(X.shape[1]),
+                "n_dropped_missing": int(drop.str.startswith("missing").sum()),
+                "n_dropped_constant": int((drop == "constant").sum()),
+                "remaining_missing_fraction": float(X.isna().mean().mean()),
+            },
+        }
+
+        print(f"  {name:<16} kept {X.shape[1]:4d} regions, "
+              f"missing {X.isna().mean().mean():.2%}")
+
+    return sets
 
 
 def main():
@@ -199,17 +272,7 @@ def main():
     regions["variance"] = X.var(axis=0, skipna=True).values
     regions["unique_values"] = X.nunique(axis=0, dropna=True).values
 
-    drop_reason = np.where(
-        regions["missing_fraction"] > args.max_missing,
-        f"missing>{args.max_missing}",
-        np.where(
-            regions["unique_values"] <= 1,
-            "constant",
-            "",
-        ),
-    )
-
-    regions["drop_reason"] = drop_reason
+    regions["drop_reason"] = region_filter(X, args.max_missing).values
     regions["kept"] = regions["drop_reason"] == ""
 
     kept = regions.loc[regions["kept"], "region_id"].tolist()
@@ -229,10 +292,38 @@ def main():
           f"(impute inside CV)")
 
     # --------------------------------------------------------
+    # Read-level and sample-level features (step 05)
+    # --------------------------------------------------------
+
+    print(f"\nRead-level features (< {args.min_frags} fragments -> NaN):")
+    read_sets = read_feature_sets(X.index, args)
+
+    X_sample = None
+
+    if SAMPLE_FEATURES_FILE.exists():
+        sample_features = (
+            pd.read_csv(SAMPLE_FEATURES_FILE, sep="\t")
+            .set_index("sample_id")
+            .reindex(X.index)
+        )
+        X_sample = sample_features.filter(like="frag_")
+
+        # QC columns, not features
+        for col in ("n_fragments", "ch_filtered_fraction", "r2_end_ch_meth"):
+            samples[col] = sample_features[col].values
+
+    # --------------------------------------------------------
     # Save
     # --------------------------------------------------------
 
+    for old in out_dir.glob("X_*.tsv"):     # feature sets of an earlier run
+        old.unlink()
+
     X.to_csv(out_dir / "X_methylation.tsv", sep="\t")
+    for name, entry in read_sets.items():
+        entry["X"].to_csv(out_dir / f"X_{name}.tsv", sep="\t")
+    if X_sample is not None:
+        X_sample.to_csv(out_dir / "X_sample.tsv", sep="\t")
     X_coverage.to_csv(out_dir / "X_coverage.tsv", sep="\t")
     samples.to_csv(out_dir / "samples.tsv", sep="\t", index=False)
     regions.to_csv(out_dir / "regions.tsv", sep="\t", index=False)
@@ -249,6 +340,7 @@ def main():
         ],
         "params": {
             "min_depth": args.min_depth,
+            "min_frags": args.min_frags,
             "max_missing": args.max_missing,
         },
         "n_samples": int(len(X)),
@@ -257,8 +349,11 @@ def main():
         "labels": {str(k): int(v) for k, v in label_counts.items()},
         "label_meaning": {"0": "non-cancer control", "1": "Stage I lung cancer"},
         "remaining_missing_fraction": remaining_missing,
+        "read_feature_sets": {name: entry["info"] for name, entry in read_sets.items()},
+        "sample_features": [] if X_sample is None else X_sample.columns.tolist(),
         "notes": [
-            "Values are coverage-weighted methylation fractions in [0, 1].",
+            "X_methylation: coverage-weighted methylation fractions in [0, 1].",
+            "X_<feature>: read-level features of 05_read_features.py, same sample order.",
             "Impute / scale / select features inside CV folds only.",
             "'predicted' (published classifier output) is intentionally excluded.",
         ],
@@ -269,11 +364,9 @@ def main():
     print()
     print(f"Labels: " + ", ".join(f"{k}={v}" for k, v in label_counts.items()))
     print(f"Saved to: {out_dir}")
-    for name in (
-        "X_methylation.tsv", "X_coverage.tsv", "samples.tsv",
-        "regions.tsv", "dataset_info.json",
-    ):
-        print(f"  {name}")
+    for path in sorted(out_dir.glob("*")):
+        if path.is_file():
+            print(f"  {path.name}")
 
     return 0
 

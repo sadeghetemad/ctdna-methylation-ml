@@ -1,5 +1,5 @@
 """
-Step 05: QC tables of the feature matrix written by step 04.
+Step 06: QC tables of the feature matrix written by step 04.
 """
 
 import numpy as np

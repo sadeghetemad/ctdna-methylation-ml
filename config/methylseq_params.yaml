@@ -1,5 +1,6 @@
 # ------------------------------------------------------------
-# nf-core/methylseq parameters for the ELSA cohort (nfcore mode).
+# nf-core/methylseq parameters for the ELSA cohort (nfcore and
+# nfcore-gpu modes).
 #
 # Replaces scripts/03_process_custom.py (custom mode). The settings
 # follow it as closely as nf-core/methylseq allows, so the coverage
@@ -7,6 +8,9 @@
 #
 # Paths (input, outdir, fasta, index, targets) are passed on the
 # command line by scripts/03_process_nfcore.py and are not set here.
+# nfcore-gpu mode adds --aligner bwameth on the command line, which
+# overrides the aligner below; the Bismark settings then do not apply
+# and MethylDackel is configured in config/methylseq_gpu.config.
 # ------------------------------------------------------------
 
 # Alignment: Bismark + Bowtie2, as in the align stage
@@ -16,16 +20,19 @@ igenomes_ignore: true
 # Trimming: Trim Galore, Q20 (default) and min length 20, as in the trim stage
 length_trim: 20
 
-# Methylation extraction, as in the extract stage
+# Methylation extraction, as in the extract stage. No genome-wide
+# cytosine report: it took ~1 h per sample (21% of the run) and is not
+# used; 04_features.py reads the .bismark.cov.gz.
 comprehensive: true
-cytosine_report: true
+cytosine_report: false
 no_overlap: true
 
-# nf-core ignores 2 bp at the R2 ends by default; custom ignores nothing.
-# Set to 0 so that the features are comparable. Check the M-bias
-# plots in MultiQC before changing them.
+# The first ~8 bp of every R2 are filled in without bisulfite conversion
+# by the ELSA library prep and look ~90% methylated (M-bias). Ignore 10 bp
+# there, as the custom extract stage and 05_read_features.py do
+# (IGNORE_R2_END in scripts/utils.py).
 ignore_r1: 0
-ignore_r2: 0
+ignore_r2: 10
 ignore_3prime_r1: 0
 ignore_3prime_r2: 0
 

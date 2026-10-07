@@ -8,7 +8,7 @@
 /reference/
 /logs/
 
-# Generated outputs (steps 04-06 and notebooks)
+# Generated outputs (steps 04-07 and notebooks)
 /features/
 /results/
 /notebooks/data/

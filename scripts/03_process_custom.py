@@ -11,6 +11,7 @@ Each cohort run goes through the stages in order:
     dedup           bismark dedup                     data/dedup/
     filter          MAPQ / proper-pair filter, sort   data/filtered/
     extract         bismark extract                   data/methylation/
+                    (without the first IGNORE_R2_END bp of R2: end-repair artifact)
 
 A stage is skipped when its final outputs exist. When a stage fails, the
 rest of that run is skipped and the next run starts.
@@ -22,10 +23,11 @@ Examples:
 """
 
 import argparse
+import json
 import sys
 
 from utils import (
-    ROOT, LOG_DIR, THREADS, REF_DIR, CUSTOM_COV,
+    ROOT, LOG_DIR, THREADS, REF_DIR, COV_FILES, IGNORE_R2_END,
     fastq_pair, runs_with_fastq, run, run_pipe, all_exist, tmp_path, finish,
 )
 
@@ -36,7 +38,12 @@ TRIM_DIR = ROOT / "data/trimmed"
 ALIGN_DIR = ROOT / "data/aligned"
 DEDUP_DIR = ROOT / "data/dedup"
 FILTER_DIR = ROOT / "data/filtered"
-METH_DIR = CUSTOM_COV[0]    # read by 04_features.py
+METH_DIR = COV_FILES["custom"][0]    # read by 04_features.py
+
+# No --cytosine_report: the genome-wide report took ~1 h per sample and is
+# not used (04_features.py reads the .bismark.cov.gz).
+EXTRACT_ARGS = ["--paired-end", "--comprehensive", "--gzip", "--bedGraph",
+                "--ignore_r2", str(IGNORE_R2_END)]
 
 MIN_MAPQ = 20
 
@@ -201,20 +208,25 @@ def extract(run_id):
 
     require(namesort_bam(run_id))
 
-    # The cytosine report and context summary are written last
+    # Written after a successful extraction, with the settings used: older
+    # outputs (other settings, or no marker) are extracted again.
     prefix = f"{run_id}.filtered.namesort"
-    if exists(*(METH_DIR / f"{prefix}{s}" for s in (
-        ".bismark.cov.gz", ".CpG_report.txt.gz", ".cytosine_context_summary.txt",
-    ))):
+    settings = METH_DIR / f"{prefix}.extract_settings.json"
+
+    if (
+        all_exist(METH_DIR / f"{prefix}.bismark.cov.gz", settings)
+        and json.loads(settings.read_text()) == EXTRACT_ARGS
+    ):
+        print("    [EXISTS]")
         return
 
     METH_DIR.mkdir(parents=True, exist_ok=True)
+    settings.unlink(missing_ok=True)
     run(
-        ["bismark", "extract", "--paired-end", "--comprehensive", "--gzip", "--bedGraph",
-         "--cytosine_report", "--genome_folder", REF_DIR, "--output_dir", METH_DIR,
-         namesort_bam(run_id)],
+        ["bismark", "extract", *EXTRACT_ARGS, "--output_dir", METH_DIR, namesort_bam(run_id)],
         log(run_id, "methylation"),
     )
+    settings.write_text(json.dumps(EXTRACT_ARGS))
 
 
 STAGES = {
