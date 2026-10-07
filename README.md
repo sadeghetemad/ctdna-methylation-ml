@@ -40,19 +40,6 @@ The pipeline has six steps. Each is a standalone Python script that wraps well-e
 
 The read processing (step 03) runs in one of two **modes**: `custom`, our own commands, or [nf-core/methylseq](https://nf-co.re/methylseq) (`nfcore`). Both feed the same feature and ML steps.
 
----
-
-## 🗺️ Pipeline at a Glance
-
-```text
- 📋 Data              🗺️ Reference        🔬 Processing (step 03)             📊 Features         🤖 ML
-┌──────────────┐    ┌──────────────┐    ┌──────────────────────────────┐    ┌──────────────┐    ┌──────────────┐
-│ 01 metadata  │    │ 02 hg19 +    │    │ custom: FastQC → trim →      │    │ 04 features  │    │ 06 ML dataset│
-│    cohort    │ ─▶ │    Bismark   │ ─▶ │   align → dedup → filter →   │ ─▶ │ 05 feature QC│ ─▶ │ notebooks    │
-│    download  │    │    index     │    │   extract                    │    │              │    │              │
-│              │    │              │    │ nfcore: nf-core/methylseq    │    │              │    │              │
-└──────────────┘    └──────────────┘    └──────────────────────────────┘    └──────────────┘    └──────────────┘
-```
 
 ---
 
@@ -142,8 +129,6 @@ python main.py --mode nfcore --from 03 --to 03
 python main.py --mode nfcore --from 04
 ```
 
-Run long jobs inside `tmux` or `screen`. If the run stops, run the same command again: Nextflow resumes with `-resume`.
-
 `03_process_nfcore.py`:
 1. 📋 writes `data/nfcore/inputs/samplesheet.csv` from the cohort runs that have both FASTQ files. Runs without them are left out with a warning.
 2. 🗺️ writes the panel BED with UCSC names (`chr1, …`) to match `hg19.fa`.
@@ -176,7 +161,6 @@ python scripts/03_process_nfcore.py --dry-run
 | QC report | separate FastQC folders | one MultiQC report: `results/nfcore_methylseq/multiqc/multiqc_report.html` |
 | Targeted analysis | none | calls restricted to the ELSA regions (`run_targeted_sequencing`) |
 
-Because of the missing MAPQ filter, the features of the two modes are close but not identical. On the 9-sample test cohort, the per-sample correlation of the region methylation is 0.97–0.999, and the nf-core read depth is about 2–3× higher.
 
 `config/methylseq.config` limits every nf-core job to **8 CPUs, 28 GB and 72 h**. Edit it to match your machine.
 
