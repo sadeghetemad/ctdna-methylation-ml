@@ -225,6 +225,46 @@ resource "aws_batch_job_queue" "main" {
   }
 }
 
+# On-demand fallback: config/methylseq_awsbatch.config sends a task here after
+# its Spot attempts were reclaimed, so a long alignment cannot stop the run.
+resource "aws_batch_compute_environment" "ondemand" {
+  compute_environment_name_prefix = "${var.project}-ondemand-"
+  type                            = "MANAGED"
+  service_role                    = aws_batch_compute_environment.main.service_role
+
+  compute_resources {
+    type                = "EC2"
+    allocation_strategy = "BEST_FIT_PROGRESSIVE"
+    min_vcpus           = 0
+    desired_vcpus       = 0
+    max_vcpus           = var.ondemand_max_vcpus
+    instance_type       = var.instance_types
+    subnets             = local.subnet_ids
+    security_group_ids  = [aws_security_group.batch.id]
+    instance_role       = aws_iam_instance_profile.ecs_instance.arn
+
+    launch_template {
+      launch_template_id = aws_launch_template.batch.id
+      version            = aws_launch_template.batch.latest_version
+    }
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_batch_job_queue" "ondemand" {
+  name     = "${var.project}-methylseq-ondemand"
+  state    = "ENABLED"
+  priority = 1
+
+  compute_environment_order {
+    order               = 1
+    compute_environment = aws_batch_compute_environment.ondemand.arn
+  }
+}
+
 # ------------------------------------------------------------
 # Head node: runs Nextflow, the FASTQ staging and steps 04-07
 # ------------------------------------------------------------

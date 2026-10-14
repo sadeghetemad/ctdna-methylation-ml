@@ -236,7 +236,8 @@ terraform apply
 ```
 
 It creates the S3 bucket, a Spot compute environment (0 to `max_vcpus`, scales to zero when idle),
-the job queue, the IAM roles and a small **head node** that runs Nextflow. `terraform destroy`
+the job queue, a small on-demand fallback queue (`ondemand_max_vcpus`) for tasks whose Spot instances
+were reclaimed, the IAM roles and a small **head node** that runs Nextflow. `terraform destroy`
 removes it again (empty the bucket first, or keep it).
 
 > [!IMPORTANT]
@@ -263,10 +264,10 @@ conda env create -f environment.yml && conda activate ctdna10
 ```
 
 Set the environment (the output of `terraform output -raw env_exports`; run it on your laptop and paste
-the four `export` lines) and the cohort:
+the `export` lines) and the cohort:
 
 ```bash
-export AWS_REGION=... CTDNA_S3_BUCKET=... CTDNA_BATCH_QUEUE=... CTDNA_BATCH_JOB_ROLE=...
+export AWS_REGION=... CTDNA_S3_BUCKET=... CTDNA_BATCH_QUEUE=... CTDNA_BATCH_QUEUE_ONDEMAND=... CTDNA_BATCH_JOB_ROLE=...
 export CTDNA_COHORT_FILE=metadata/primary_cohort_stage1_vs_control.tsv
 
 python scripts/01_data.py --stages metadata     # NOT "cohort": it would overwrite the cohort file
@@ -285,6 +286,8 @@ Steps 03 to 07 in one command: `python main.py --mode nfcore --aws-batch --from 
 Do not run step 01 or 02 on the head node (they download FASTQ and build the index locally).
 
 - **Resume.** If Nextflow or the head node stops, rerun the same command: finished samples are kept (`-resume`).
+- **Spot reclaims.** Batch retries a reclaimed job once on Spot; after that Nextflow retries the task on the
+  on-demand queue (`CTDNA_BATCH_QUEUE_ONDEMAND`), so a long alignment is not lost again and again.
 - **Monitor.** `tail -f data/nfcore/.nextflow.log`, or the AWS Batch console (jobs per sample).
 - **Results.** `s3://<bucket>/results/nfcore_methylseq/`. Step 03 downloads the coverage files and
   the deduplicated BAMs (step 05) into `results/nfcore_methylseq/`; `--no-bams` skips the BAMs.

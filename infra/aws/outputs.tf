@@ -30,6 +30,7 @@ output "env_exports" {
     export AWS_REGION=${var.region}
     export CTDNA_S3_BUCKET=${aws_s3_bucket.data.bucket}
     export CTDNA_BATCH_QUEUE=${aws_batch_job_queue.main.name}
+    export CTDNA_BATCH_QUEUE_ONDEMAND=${aws_batch_job_queue.ondemand.name}
     export CTDNA_BATCH_JOB_ROLE=${aws_iam_role.job.arn}
   EOT
 }

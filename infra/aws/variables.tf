@@ -28,6 +28,12 @@ variable "max_vcpus" {
   default     = 256
 }
 
+variable "ondemand_max_vcpus" {
+  description = "Most vCPUs of the on-demand fallback queue (tasks reclaimed on Spot). 64 = 4 jobs at once."
+  type        = number
+  default     = 64
+}
+
 variable "instance_types" {
   description = "Instance families or types for the alignment jobs. 16 vCPU / 64 GB nodes (m6i.4xlarge) fit the 16 CPU / 56 GB job cap in config/methylseq_awsbatch.config."
   type        = list(string)
