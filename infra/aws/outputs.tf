@@ -10,6 +10,10 @@ output "job_role_arn" {
   value = aws_iam_role.job.arn
 }
 
+output "head_public_ip" {
+  value = var.create_head_node ? aws_instance.head[0].public_ip : null
+}
+
 output "head_instance_id" {
   value = var.create_head_node ? aws_instance.head[0].id : null
 }

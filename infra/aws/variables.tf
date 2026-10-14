@@ -68,3 +68,15 @@ variable "head_disk_gb" {
   type        = number
   default     = 1000
 }
+
+variable "ssh_public_key" {
+  description = "Public key (contents of id_ed25519.pub) to log in to the head node with SSH. Empty: no SSH key (use Session Manager)."
+  type        = string
+  default     = ""
+}
+
+variable "ssh_allowed_cidrs" {
+  description = "CIDRs allowed to SSH to the head node, e.g. [\"203.0.113.7/32\"]. Required when ssh_public_key is set."
+  type        = list(string)
+  default     = []
+}

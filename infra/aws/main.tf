@@ -301,11 +301,27 @@ resource "aws_iam_instance_profile" "head" {
   role  = aws_iam_role.head[0].name
 }
 
+resource "aws_key_pair" "head" {
+  count      = var.create_head_node && var.ssh_public_key != "" ? 1 : 0
+  key_name   = "${var.project}-head"
+  public_key = var.ssh_public_key
+}
+
 resource "aws_security_group" "head" {
   count       = var.create_head_node ? 1 : 0
   name        = "${var.project}-head"
-  description = "Head node: outbound only (use Session Manager)"
+  description = "Head node: outbound, SSH only from ssh_allowed_cidrs"
   vpc_id      = data.aws_vpc.default.id
+
+  dynamic "ingress" {
+    for_each = var.ssh_public_key != "" && length(var.ssh_allowed_cidrs) > 0 ? [1] : []
+    content {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = var.ssh_allowed_cidrs
+    }
+  }
 
   egress {
     from_port   = 0
@@ -322,6 +338,7 @@ resource "aws_instance" "head" {
   subnet_id              = local.subnet_ids[0]
   vpc_security_group_ids = [aws_security_group.head[0].id]
   iam_instance_profile   = aws_iam_instance_profile.head[0].name
+  key_name               = var.ssh_public_key != "" ? aws_key_pair.head[0].key_name : null
 
   root_block_device {
     volume_size = var.head_disk_gb
