@@ -39,7 +39,8 @@ if MODE not in MODES:
 
 # Working cohort written by 01_data.py; every later step reads it.
 # For the full cohort, point it at metadata/primary_cohort_stage1_vs_control.tsv
-COHORT_FILE = ROOT / "metadata/test_cohort_10.tsv"
+# or set CTDNA_COHORT_FILE (a path, absolute or relative to the project root).
+COHORT_FILE = ROOT / os.environ.get("CTDNA_COHORT_FILE", "metadata/test_cohort_10.tsv")
 COHORT = COHORT_FILE.stem
 
 TARGET_BED = ROOT / "metadata/targets/ELSA_plasma_2473_hg19.bed"

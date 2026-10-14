@@ -1,0 +1,3 @@
+region     = "eu-west-2"
+max_vcpus  = 256     # lower this if your Spot quota is smaller
+# bucket_name = "my-unique-bucket"

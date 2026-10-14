@@ -23,6 +23,12 @@ Usually run through main.py:
     python main.py --mode nfcore
     python main.py --mode nfcore-gpu
 
+AWS Batch (nfcore mode): every sample runs as its own Spot job, with the
+FASTQ files, reference and Nextflow work files in S3. Stage the inputs with
+scripts/aws_stage.py first; see README, "Running on AWS Batch".
+    python scripts/03_process_nfcore.py --aws-batch
+    python scripts/03_process_nfcore.py --aws-batch --collect-only
+
 On its own:
     python scripts/03_process_nfcore.py --profile docker
     python scripts/03_process_nfcore.py --dry-run
@@ -41,7 +47,7 @@ import sys
 
 from utils import (
     ROOT, MODE, TARGET_BED, REF_DIR, FASTA, COV_FILES, NFCORE_RESULTS,
-    fastq_pair, runs_with_fastq,
+    BAM_FILES, fastq_pair, runs_with_fastq, cohort_runs,
 )
 
 
@@ -55,6 +61,10 @@ PARAMS_FILE = ROOT / "config/methylseq_params.yaml"
 CONFIG_FILES = [ROOT / "config/methylseq.config"]
 if GPU:
     CONFIG_FILES.append(ROOT / "config/methylseq_gpu.config")
+
+# AWS Batch (--aws-batch): the config comes last so it overrides the
+# local resource limits of methylseq.config
+AWSBATCH_CONFIG = ROOT / "config/methylseq_awsbatch.config"
 
 # Nextflow state, inputs and work files (large) live under data/<mode>/
 NF_DIR = ROOT / "data" / NF_MODE
@@ -89,6 +99,13 @@ def parse_args():
                         "adds the gpu profile; conda cannot run on the GPU.")
     p.add_argument("--revision", default=REVISION,
                    help="Pipeline version (default: %(default)s).")
+    p.add_argument("--aws-batch", action="store_true",
+                   help="Run the samples as AWS Batch jobs, with inputs, work "
+                        "files and results in s3://$CTDNA_S3_BUCKET (nfcore mode "
+                        "only). Stage the inputs first with scripts/aws_stage.py.")
+    p.add_argument("--no-bams", action="store_true",
+                   help="With --aws-batch: do not download the deduplicated BAMs "
+                        "(needed by step 05) from S3.")
     p.add_argument("--build-index", action="store_true",
                    help="Let nf-core build the aligner index instead of using "
                         "reference/hg19/Bisulfite_Genome (Bismark) or a saved "
@@ -106,12 +123,15 @@ def parse_args():
 # Inputs
 # ============================================================
 
-def write_samplesheet(run_ids):
+def write_samplesheet(run_ids, s3=None):
 
     rows = []
 
     for run_id in run_ids:
-        r1, r2 = fastq_pair(run_id)
+        if s3:
+            r1, r2 = (f"{s3}/fastq/{run_id}_{n}.fastq.gz" for n in (1, 2))
+        else:
+            r1, r2 = fastq_pair(run_id)
         rows.append({"sample": run_id, "fastq_1": r1, "fastq_2": r2, "genome": ""})
 
     SAMPLESHEET.parent.mkdir(parents=True, exist_ok=True)
@@ -157,9 +177,9 @@ def write_ucsc_targets():
 # Nextflow
 # ============================================================
 
-def nextflow_command(args):
+def nextflow_command(args, s3=None):
 
-    if not FASTA.exists():
+    if not FASTA.exists() and not s3:
         sys.exit(
             f"Missing reference: {FASTA}\n"
             "Run: python scripts/02_reference.py"
@@ -169,17 +189,25 @@ def nextflow_command(args):
     if GPU and "gpu" not in profile.split(","):
         profile += ",gpu"
 
+    if s3:
+        work_dir, outdir = f"{s3}/work", f"{s3}/results/{OUT_DIR.name}"
+        fasta, targets = f"{s3}/reference/hg19/hg19.fa", f"{s3}/inputs/{TARGETS_UCSC.name}"
+        configs = [*CONFIG_FILES, AWSBATCH_CONFIG]
+    else:
+        work_dir, outdir, fasta, targets = WORK_DIR, OUT_DIR, FASTA, TARGETS_UCSC
+        configs = CONFIG_FILES
+
     cmd = [
         "nextflow", "run", PIPELINE,
         "-r", args.revision,
         "-profile", profile,
         "-params-file", PARAMS_FILE,
-        *(x for config in CONFIG_FILES for x in ("-c", config)),
-        "-work-dir", WORK_DIR,
+        *(x for config in configs for x in ("-c", config)),
+        "-work-dir", work_dir,
         "--input", SAMPLESHEET,
-        "--outdir", OUT_DIR,
-        "--fasta", FASTA,
-        "--target_regions_file", TARGETS_UCSC,
+        "--outdir", outdir,
+        "--fasta", fasta,
+        "--target_regions_file", targets,
     ]
 
     if GPU:
@@ -187,6 +215,8 @@ def nextflow_command(args):
         index = None if args.build_index else bwameth_index()
         cmd += ["--bwameth_index", index] if index else ["--save_reference"]
 
+    elif not args.build_index and s3:
+        cmd += ["--bismark_index", f"{s3}/reference/hg19"]
     elif not args.build_index and (REF_DIR / "Bisulfite_Genome").exists():
         cmd += ["--bismark_index", REF_DIR]
     else:
@@ -359,17 +389,95 @@ def check_gpu(profile):
             )
 
 
+# ============================================================
+# AWS Batch (--aws-batch)
+# ============================================================
+
+def s3_base():
+    bucket = os.environ.get("CTDNA_S3_BUCKET")
+    missing = [v for v in ("CTDNA_S3_BUCKET", "CTDNA_BATCH_QUEUE", "CTDNA_BATCH_JOB_ROLE", "AWS_REGION")
+               if not os.environ.get(v)]
+
+    if missing:
+        sys.exit(
+            f"Not set: {', '.join(missing)}\n"
+            "Run: source <(terraform -chdir=infra/aws output -raw env_exports)"
+        )
+
+    if NF_MODE != "nfcore":
+        sys.exit("--aws-batch supports nfcore mode only (the GPU mode needs GPU instances).")
+
+    return f"s3://{bucket}"
+
+
+def s3_runs_with_fastq(s3):
+    """Cohort runs with both FASTQ files in S3 (uploaded by aws_stage.py)."""
+
+    listing = subprocess.run(
+        ["aws", "s3", "ls", f"{s3}/fastq/"], capture_output=True, text=True
+    )
+
+    if listing.returncode != 0:
+        sys.exit(f"Cannot list {s3}/fastq/:\n{listing.stderr.strip()}")
+
+    present = {line.split()[-1] for line in listing.stdout.splitlines() if line.strip()}
+    run_ids = cohort_runs()
+    ready = [r for r in run_ids if {f"{r}_1.fastq.gz", f"{r}_2.fastq.gz"} <= present]
+    missing = [r for r in run_ids if r not in ready]
+
+    if missing:
+        print(f"WARNING: FASTQ files missing in S3 for {len(missing)} run(s), left out: "
+              f"{', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''}")
+        print("         Run: python scripts/aws_stage.py fastq")
+
+    if not ready:
+        sys.exit(f"No run of the cohort has both FASTQ files in {s3}/fastq/")
+
+    return ready
+
+
+def upload_inputs(s3):
+    """The samplesheet and targets files are small; the jobs read them from S3."""
+
+    for path in (SAMPLESHEET, TARGETS_UCSC):
+        subprocess.run(["aws", "s3", "cp", path, f"{s3}/inputs/{path.name}", "--only-show-errors"],
+                       check=True)
+
+
+def download_results(s3, bams):
+    """
+    Download the files the later steps read from s3://.../results/<name>/ to
+    OUT_DIR: coverage files (step 04), the deduplicated BAMs with their
+    indexes (step 05, optional) and the MultiQC report.
+    """
+
+    includes = ["*.bismark.cov.gz", "multiqc/*", "pipeline_info/*"]
+    bam_dir, _ = BAM_FILES[NF_MODE]
+
+    if bams:
+        includes.append(f"{bam_dir.relative_to(OUT_DIR)}/*")
+
+    cmd = ["aws", "s3", "sync", f"{s3}/results/{OUT_DIR.name}", str(OUT_DIR),
+           "--only-show-errors", "--exclude", "*"]
+    cmd += [x for pattern in includes for x in ("--include", pattern)]
+
+    print("\n$ " + " ".join(cmd), flush=True)
+    return subprocess.run(cmd).returncode
+
+
 def main():
 
     args = parse_args()
     print(f"Mode: {NF_MODE}")
-    run_ids = runs_with_fastq()
+
+    s3 = s3_base() if args.aws_batch else None
+    run_ids = s3_runs_with_fastq(s3) if s3 else runs_with_fastq()
 
     if not args.collect_only:
 
-        write_samplesheet(run_ids)
+        write_samplesheet(run_ids, s3)
         write_ucsc_targets()
-        cmd = nextflow_command(args)
+        cmd = nextflow_command(args, s3)
 
         print()
         print("$ " + " ".join(f"{k}={v}" for k, v in NXF_ENV.items()) + " " + shlex.join(cmd))
@@ -383,9 +491,12 @@ def main():
                 "  conda env update -f environment.yml"
             )
 
-        check_docker(args.profile)
-        if GPU:
-            check_gpu(args.profile)
+        if s3:
+            upload_inputs(s3)
+        else:
+            check_docker(args.profile)
+            if GPU:
+                check_gpu(args.profile)
 
         # Nextflow writes .nextflow/ and .nextflow.log to the launch directory
         NF_DIR.mkdir(parents=True, exist_ok=True)
@@ -395,6 +506,11 @@ def main():
         if returncode != 0:
             print(f"\nnf-core/methylseq failed (exit code {returncode}).")
             print(f"See {NF_DIR / '.nextflow.log'}; rerun to resume.")
+            return returncode
+
+    if s3:
+        returncode = download_results(s3, bams=not args.no_bams)
+        if returncode != 0:
             return returncode
 
     return collect_coverage(run_ids)

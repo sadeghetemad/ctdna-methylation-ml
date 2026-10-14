@@ -90,6 +90,9 @@ def parse_args():
     p.add_argument("--nf-profile", default="docker",
                    help="Step 03 (nf-core modes): Nextflow profile (default: %(default)s); "
                         "nfcore-gpu adds the gpu profile.")
+    p.add_argument("--aws-batch", action="store_true",
+                   help="Step 03 (nfcore mode): run the samples as AWS Batch jobs "
+                        "(see README, Running on AWS Batch).")
     p.add_argument("--build-index", action="store_true",
                    help="Step 03 (nf-core modes): let nf-core build its own aligner index.")
     p.add_argument("--min-depth", type=int,
@@ -121,6 +124,8 @@ def step_args(step_id, args):
         extra += ["--profile", args.nf_profile]
         if args.build_index:
             extra.append("--build-index")
+        if args.aws_batch:
+            extra.append("--aws-batch")
 
     if step_id == "07":
         if args.min_depth is not None:

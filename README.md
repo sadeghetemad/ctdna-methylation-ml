@@ -16,6 +16,7 @@
 - [Installation](#-installation)
 - [Quick Start](#-quick-start)
 - [Modes: custom, nf-core and nf-core GPU](#-modes-custom-nf-core-and-nf-core-gpu)
+- [Running on AWS Batch](#%EF%B8%8F-running-on-aws-batch)
 - [Steps](#-steps)
 - [Machine Learning](#-machine-learning)
 - [Configuration](#%EF%B8%8F-configuration)
@@ -208,6 +209,91 @@ python scripts/03_process_nfcore.py --dry-run
 
 > [!TIP]
 > **Choosing a machine.** Bismark + Bowtie2 speed up almost linearly with CPU cores, and nf-core processes several samples at once when `resourceLimits` allows it. Burstable instances (AWS `t3`/`t4g`) are throttled, or billed extra, under hours of full load; for a large cohort, a compute-optimised instance (e.g. `c7i.8xlarge`, 32 vCPUs) or `nfcore-gpu` mode is a better fit.
+
+---
+
+## ☁️ Running on AWS Batch
+
+For the full cohort (hundreds of samples), run step 03 in `nfcore` mode on **AWS Batch**: every
+sample is its own Spot job, so the samples align in parallel instead of one after another. FASTQ
+files, reference, Nextflow work files and results are in S3. Terraform creates everything in
+`infra/aws/`.
+
+```text
+ENA ─▶ S3 fastq/ ─┐
+hg19 ─▶ S3 ───────┼─▶ head node (Nextflow) ─▶ AWS Batch: one Spot job per sample ─▶ S3 results/
+                  │                                                                    │
+                  └──── steps 04-07 on the head node ◀── coverage + BAMs ◀─────────────┘
+```
+
+### 1. Create the infrastructure (once, from any machine with admin AWS credentials)
+
+```bash
+cd infra/aws
+cp terraform.tfvars.example terraform.tfvars    # region, max_vcpus, ...
+terraform init
+terraform apply
+```
+
+It creates the S3 bucket, a Spot compute environment (0 to `max_vcpus`, scales to zero when idle),
+the job queue, the IAM roles and a small **head node** that runs Nextflow. `terraform destroy`
+removes it again (empty the bucket first, or keep it).
+
+> [!IMPORTANT]
+> Spot capacity is limited by the account's **"All Standard (A, C, D, H, I, M, R, T, Z) Spot Instance
+> Requests"** vCPU quota, often only 32 to 64 for a new account. Request an increase (Service Quotas,
+> in your region) to ~256, or lower `max_vcpus`; jobs wait in the queue when the quota is reached.
+
+### 2. Upload the reference (once)
+
+From a machine that already has `reference/hg19/` (hg19.fa and the Bismark index, step 02):
+
+```bash
+source <(terraform -chdir=infra/aws output -raw env_exports)
+python scripts/aws_stage.py reference         # ~17 GB
+```
+
+### 3. Prepare the head node
+
+```bash
+$(terraform -chdir=infra/aws output -raw ssm_command)      # shell on the head node (Session Manager)
+tail /var/log/head-setup.log; ls /var/log/head-setup.done  # wait until the setup has finished
+cd /data && git clone https://github.com/sadeghetemad/ctdna-methylation-ml.git && cd ctdna-methylation-ml
+conda env create -f environment.yml && conda activate ctdna10
+```
+
+Set the environment (the output of `terraform output -raw env_exports`; run it on your laptop and paste
+the four `export` lines) and the cohort:
+
+```bash
+export AWS_REGION=... CTDNA_S3_BUCKET=... CTDNA_BATCH_QUEUE=... CTDNA_BATCH_JOB_ROLE=...
+export CTDNA_COHORT_FILE=metadata/primary_cohort_stage1_vs_control.tsv
+
+python scripts/01_data.py --stages metadata     # NOT "cohort": it would overwrite the cohort file
+```
+
+### 4. Run
+
+```bash
+tmux new -s ctdna                                # keeps running when the connection drops
+python scripts/aws_stage.py fastq --workers 12   # ENA -> S3, with MD5 check; rerun to retry
+python scripts/03_process_nfcore.py --aws-batch  # submits the jobs, waits, downloads the results
+python main.py --mode nfcore --from 04           # features, QC, ML dataset
+```
+
+Steps 03 to 07 in one command: `python main.py --mode nfcore --aws-batch --from 03`.
+Do not run step 01 or 02 on the head node (they download FASTQ and build the index locally).
+
+- **Resume.** If Nextflow or the head node stops, rerun the same command: finished samples are kept (`-resume`).
+- **Monitor.** `tail -f data/nfcore/.nextflow.log`, or the AWS Batch console (jobs per sample).
+- **Results.** `s3://<bucket>/results/nfcore_methylseq/`. Step 03 downloads the coverage files and
+  the deduplicated BAMs (step 05) into `results/nfcore_methylseq/`; `--no-bams` skips the BAMs.
+- **Clean up.** Work files expire after 30 days (`work_expiry_days`). `aws s3 rm --recursive s3://<bucket>/work/`
+  frees them at once (resuming is then no longer possible). Stop the head node when idle:
+  `aws ec2 stop-instances --instance-ids <id>`.
+
+Settings: instance types, Spot or on-demand, disk, `max_vcpus` in `infra/aws/variables.tf`; job size,
+retries in `config/methylseq_awsbatch.config`. GPU mode is not supported on Batch.
 
 ---
 
@@ -410,17 +496,18 @@ The notebooks read `notebooks/data/`. For the nf-core mode dataset, set `DATA_DI
 |---|---|---|
 | Mode | `main.py --mode`, or the `CTDNA_MODE` environment variable (`scripts/utils.py`) | `custom` |
 | Threads | `main.py --threads`, or the `CTDNA_THREADS` environment variable (`scripts/utils.py`) | `8` |
-| Cohort file | `COHORT_FILE` in `scripts/utils.py`, read by every step | `metadata/test_cohort_10.tsv` |
+| Cohort file | `CTDNA_COHORT_FILE` environment variable or `COHORT_FILE` in `scripts/utils.py`, read by every step | `metadata/test_cohort_10.tsv` |
 | Cohort size / seed | `N_PER_CLASS`, `SEED` in `01_data.py` | 5 + 5, `42` |
 | MAPQ threshold | `MIN_MAPQ` in `03_process_custom.py` and `05_read_features.py` | `20` |
 | Read-level features | `MIN_CPG`, `METH_CUTOFF`, `SHORT_MAX`, `IGNORE_R2_END` in `05_read_features.py` | 3 CpGs, 80%, 150 bp, 10 bp |
 | Trimming | `trim()` in `03_process_custom.py` | Q20, Illumina adapter, min length 20 |
 | nf-core parameters | `config/methylseq_params.yaml` | see [nf-core settings](#nf-core-settings) |
 | nf-core resources | `config/methylseq.config` | 8 CPUs, 28 GB, 72 h per job |
+| nf-core on AWS Batch | `config/methylseq_awsbatch.config`, `infra/aws/variables.tf` | Spot, 16 CPUs, 56 GB per job |
 | nf-core GPU additions | `config/methylseq_gpu.config` | MethylDackel ignores the first 10 bp of R2 |
 | R2 bases ignored (end-repair artifact) | `IGNORE_R2_END` in `scripts/utils.py`; `ignore_r2` in `config/methylseq_params.yaml`; `--nOT/--nOB` in `config/methylseq_gpu.config` | 10 bp |
 
-To run the **full cohort**, point `COHORT_FILE` at `metadata/primary_cohort_stage1_vs_control.tsv`.
+To run the **full cohort**, set `CTDNA_COHORT_FILE=metadata/primary_cohort_stage1_vs_control.tsv`.
 
 ---
 
@@ -450,8 +537,10 @@ ctdna-methylation-ml/
 │   ├── 05_read_features.py       # read-level and fragment features
 │   ├── 06_feature_qc.py          # feature QC
 │   ├── 07_ml_dataset.py          # ML-ready dataset
+│   ├── aws_stage.py              # AWS Batch: FASTQ and reference -> S3
 │   └── utils.py                  # shared paths, mode, cohort, logged command runner
-├── 📂 config/                    # nf-core/methylseq parameters and resources
+├── 📂 config/                    # nf-core/methylseq parameters and resources (local, GPU, AWS Batch)
+├── 📂 infra/aws/                 # Terraform: S3, Batch (Spot), IAM, head node
 ├── 📂 metadata/
 │   ├── raw/                      # SRA run table (input)
 │   ├── publication/              # supplementary tables (input)

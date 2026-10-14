@@ -1,0 +1,70 @@
+variable "region" {
+  description = "AWS region. Keep the S3 bucket, Batch and the head node in the same region."
+  type        = string
+  default     = "eu-west-2"
+}
+
+variable "project" {
+  description = "Name prefix of every resource."
+  type        = string
+  default     = "ctdna"
+}
+
+variable "bucket_name" {
+  description = "S3 bucket for FASTQ, reference, Nextflow work files and results. Empty: <project>-<account id>-<region>."
+  type        = string
+  default     = ""
+}
+
+variable "work_expiry_days" {
+  description = "Nextflow work files under work/ are deleted after this many days (resume stops working after it)."
+  type        = number
+  default     = 30
+}
+
+variable "max_vcpus" {
+  description = "Most vCPUs Batch may run at once. Also limited by your account's Spot vCPU quota (see README)."
+  type        = number
+  default     = 256
+}
+
+variable "instance_types" {
+  description = "Instance families or types for the alignment jobs. 16 vCPU / 64 GB nodes (m6i.4xlarge) fit the 16 CPU / 56 GB job cap in config/methylseq_awsbatch.config."
+  type        = list(string)
+  default     = ["m6i", "m7i", "m6a", "m5"]
+}
+
+variable "use_spot" {
+  description = "Spot (about 70% cheaper, jobs are retried when reclaimed) or on-demand."
+  type        = bool
+  default     = true
+}
+
+variable "job_disk_gb" {
+  description = "Root EBS volume (gp3) of every Batch instance. Alignment of one sample needs about 100 GB."
+  type        = number
+  default     = 300
+}
+
+variable "subnet_ids" {
+  description = "Subnets (with internet access) for Batch and the head node. Empty: all subnets of the default VPC."
+  type        = list(string)
+  default     = []
+}
+
+variable "create_head_node" {
+  description = "Create a small EC2 instance that runs Nextflow and the feature steps 04-07. Not needed if you launch from another machine with AWS credentials."
+  type        = bool
+  default     = true
+}
+
+variable "head_instance_type" {
+  type    = string
+  default = "m6i.xlarge"
+}
+
+variable "head_disk_gb" {
+  description = "Head node disk. Holds the feature-step inputs synced from S3 (BAMs are about 1 GB per sample)."
+  type        = number
+  default     = 1000
+}
