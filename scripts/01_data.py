@@ -300,20 +300,25 @@ def ena_fastq_files(run_id):
         "format": "tsv",
     }
     url = ENA_API + "?" + urllib.parse.urlencode(params)
-
-    with urllib.request.urlopen(url, timeout=60) as response:
-        text = response.read().decode("utf-8")
-
     log_file = LOG_DIR / "ena" / f"{run_id}_ena.tsv"
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    log_file.write_text(text)
 
-    lines = text.strip().splitlines()
+    # Under many parallel requests ENA sometimes answers with an error page instead of the TSV
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                text = response.read().decode("utf-8")
+            log_file.write_text(text)
+            lines = text.strip().splitlines()
+            row = dict(zip(lines[0].split("\t"), lines[1].split("\t"))) if len(lines) >= 2 else {}
+            if row.get("fastq_ftp"):
+                break
+        except (OSError, UnicodeDecodeError):
+            pass
+        time.sleep(5 * 2 ** attempt)
+    else:
+        raise RuntimeError(f"ENA returned no FASTQ information for {run_id} (see {log_file})")
 
-    if len(lines) < 2:
-        raise RuntimeError(f"ENA returned no FASTQ information for {run_id}")
-
-    row = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
     urls = row["fastq_ftp"].split(";")
 
     if len(urls) != 2:
