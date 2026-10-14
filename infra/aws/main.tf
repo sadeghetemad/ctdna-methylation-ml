@@ -73,26 +73,6 @@ data "aws_iam_policy_document" "s3_access" {
 # IAM: Batch service, EC2 instances, job containers
 # ------------------------------------------------------------
 
-data "aws_iam_policy_document" "batch_trust" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["batch.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "batch_service" {
-  name               = "${var.project}-batch-service"
-  assume_role_policy = data.aws_iam_policy_document.batch_trust.json
-}
-
-resource "aws_iam_role_policy_attachment" "batch_service" {
-  role       = aws_iam_role.batch_service.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole"
-}
-
 data "aws_iam_policy_document" "ec2_trust" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -188,11 +168,13 @@ resource "aws_launch_template" "batch" {
 
     #!/bin/bash
     set -e
-    curl -sSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
-    bash /tmp/miniconda.sh -b -f -p /home/ec2-user/miniconda
-    /home/ec2-user/miniconda/bin/conda install -q -y -c conda-forge awscli
+    # Miniforge, not Miniconda: Miniconda's default channels need a ToS acceptance that fails non-interactively
+    curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o /tmp/miniforge.sh
+    bash /tmp/miniforge.sh -b -f -p /home/ec2-user/miniconda
+    /home/ec2-user/miniconda/bin/conda install -q -y awscli
+    /home/ec2-user/miniconda/bin/aws --version
     chmod -R a+rX /home/ec2-user/miniconda
-    rm -f /tmp/miniconda.sh
+    rm -f /tmp/miniforge.sh
 
     --==BOUNDARY==--
   EOT
@@ -205,9 +187,10 @@ resource "aws_launch_template" "batch" {
 }
 
 resource "aws_batch_compute_environment" "main" {
-  compute_environment_name = "${var.project}-methylseq"
-  type                     = "MANAGED"
-  service_role             = aws_iam_role.batch_service.arn
+  compute_environment_name_prefix = "${var.project}-methylseq-"
+  type                            = "MANAGED"
+  # Batch only updates the instances in place (e.g. a new launch template) with its service-linked role
+  service_role = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/batch.amazonaws.com/AWSServiceRoleForBatch"
 
   compute_resources {
     type                = var.use_spot ? "SPOT" : "EC2"
@@ -225,8 +208,6 @@ resource "aws_batch_compute_environment" "main" {
       version            = aws_launch_template.batch.latest_version
     }
   }
-
-  depends_on = [aws_iam_role_policy_attachment.batch_service]
 
   lifecycle {
     create_before_destroy = true
