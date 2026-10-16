@@ -35,9 +35,9 @@ variable "ondemand_max_vcpus" {
 }
 
 variable "instance_types" {
-  description = "Instance families or types for the alignment jobs. 16 vCPU / 64 GB nodes (m6i.4xlarge) fit the 16 CPU / 56 GB job cap in config/methylseq_awsbatch.config."
+  description = "Instance types for the jobs. Only 16-vCPU sizes: one alignment (12 vCPU / 56 GB) per instance, so concurrent alignments cannot fill one disk."
   type        = list(string)
-  default     = ["m6i", "m7i", "m6a", "m5"]
+  default     = ["m6i.4xlarge", "m7i.4xlarge", "m6a.4xlarge", "m5.4xlarge", "m5a.4xlarge", "r6i.4xlarge", "r6a.4xlarge", "r5.4xlarge"]
 }
 
 variable "use_spot" {
@@ -47,9 +47,9 @@ variable "use_spot" {
 }
 
 variable "job_disk_gb" {
-  description = "Root EBS volume (gp3) of every Batch instance. Alignment of one sample needs about 100 GB."
+  description = "Root EBS volume (gp3) of every Batch instance. Bismark writes several converted copies of the reads; the largest samples need well over 100 GB."
   type        = number
-  default     = 300
+  default     = 500
 }
 
 variable "subnet_ids" {
