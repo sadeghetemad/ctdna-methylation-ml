@@ -211,6 +211,8 @@ resource "aws_batch_compute_environment" "main" {
 
   lifecycle {
     create_before_destroy = true
+    # Batch scales desired_vcpus itself; resetting it to 0 mid-run would fight the scaler
+    ignore_changes = [compute_resources[0].desired_vcpus]
   }
 }
 
@@ -251,6 +253,8 @@ resource "aws_batch_compute_environment" "ondemand" {
 
   lifecycle {
     create_before_destroy = true
+    # Batch scales desired_vcpus itself; resetting it to 0 mid-run would fight the scaler
+    ignore_changes = [compute_resources[0].desired_vcpus]
   }
 }
 
@@ -372,6 +376,11 @@ resource "aws_instance" "head" {
   }
 
   user_data = file("${path.module}/head_user_data.sh")
+
+  # A newer AL2023 image must not replace a running head node (and its disk)
+  lifecycle {
+    ignore_changes = [ami]
+  }
 
   tags = {
     Name = "${var.project}-head"
