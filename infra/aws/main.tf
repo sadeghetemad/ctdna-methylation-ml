@@ -167,18 +167,31 @@ resource "aws_launch_template" "batch" {
     Content-Type: text/x-shellscript; charset="us-ascii"
 
     #!/bin/bash
-    set -e
     # Miniforge, not Miniconda: Miniconda's default channels need a ToS acceptance that fails non-interactively
-    curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o /tmp/miniforge.sh
-    bash /tmp/miniforge.sh -b -f -p /home/ec2-user/miniconda
-    /home/ec2-user/miniconda/bin/conda install -q -y awscli
-    /home/ec2-user/miniconda/bin/aws --version
+    install_awscli() {
+      curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+        https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o /tmp/miniforge.sh &&
+      bash /tmp/miniforge.sh -b -f -p /home/ec2-user/miniconda &&
+      /home/ec2-user/miniconda/bin/conda install -q -y awscli &&
+      /home/ec2-user/miniconda/bin/aws --version
+    }
+    for attempt in 1 2 3 4 5; do
+      install_awscli && break
+      sleep $((attempt * 20))
+    done
+    # A host without the aws cli fails every job sent to it: terminate it so Batch launches a new one
+    if ! /home/ec2-user/miniconda/bin/aws --version; then
+      echo "aws cli install failed, terminating this instance" >&2
+      shutdown -h now
+    fi
     chmod -R a+rX /home/ec2-user/miniconda
     rm -f /tmp/miniforge.sh
 
     --==BOUNDARY==--
   EOT
   )
+
+  instance_initiated_shutdown_behavior = "terminate"
 
   metadata_options {
     http_tokens                 = "required"
