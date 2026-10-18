@@ -37,7 +37,7 @@ This repository rebuilds the region-level methylation features used by the **ELS
 | **Features** | Over the published ELSA plasma panel regions: coverage-weighted CpG methylation, plus read-level methylation and fragment-length features |
 | **Reference** | UCSC hg19 |
 
-The pipeline has seven processing steps and three modelling steps. Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
+The pipeline has seven processing steps and four modelling steps. Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
 
 The read processing (step 03) runs in one of three **modes**: `custom`, our own commands; [nf-core/methylseq](https://nf-co.re/methylseq) with Bismark (`nfcore`); or nf-core/methylseq with GPU alignment (`nfcore-gpu`). All feed the same feature and ML steps.
 
@@ -519,6 +519,29 @@ Builds `ML_Report.docx` from the outputs of steps 08 and 09, with a plain-langua
 python scripts/10_report.py --results results/ml/nfcore_paper --data notebooks/data/nfcore_full
 ```
 
+### `11_ml_improved.py`: model variants for batch transfer and screening specificity
+
+Three evaluation designs: nested CV pooled over all samples (5 folds × 3 repeats, stratified by label × batch, so
+both batches contribute cancers to every training set), leave one batch out, and the study's split for comparison.
+New pipelines next to the step 08 references:
+
+- **clean**: `meth` (CpG calls without the end-repair artifact), technical covariates regressed out on the training
+  controls, each batch centred on its own training controls
+- **burden**: per region, methylated fragments and CpG calls above the training-control rate, one-sided and with the
+  between-sample spread of the controls (overdispersion), per region or summed over the most informative regions
+- **clean + burden**: both together
+
+Each pipeline is tuned by ROC-AUC and by partial AUC at FPR ≤ 5%. The inner-CV fold models are kept and averaged,
+and the 95%-specificity threshold comes from their own out-of-fold control scores, so it transfers to new data.
+
+```bash
+python scripts/11_ml_improved.py --data notebooks/data/nfcore_full --features features/nfcore --out results/ml/improved
+```
+
+On the single-blind test set, the model chosen by pooled partial AUC (clean + burden) finds 46% of Stage I cancers at
+96.4% specificity with the threshold fixed on `TV` (step 08 model: 47% at 88% specificity, 26% at 96%), partial AUC
+0.69 vs 0.59, overall AUC 0.74 vs 0.76. Leave-one-batch-out stays at AUC 0.46–0.65 for every pipeline.
+
 > [!NOTE]
 > The `TV` group holds only one cancer from the smaller sequencing batch (SRR151), so the models do not transfer to
 > that batch on `SBT`. The report and the notebook show the per-batch results.
@@ -576,6 +599,7 @@ ctdna-methylation-ml/
 │   ├── 08_ml_analysis.py         # nested-CV modelling, held-out test on SBT
 │   ├── 09_published_benchmark.py # comparison with the published classifier
 │   ├── 10_report.py              # Word report of steps 08-09
+│   ├── 11_ml_improved.py         # pooled / leave-one-batch-out CV, tumour-fragment score, pAUC tuning
 │   └── utils.py                  # shared paths, mode, cohort, logged command runner
 ├── notebooks/
 │   ├── data_analysis.ipynb       # features vs label, confounders, batches
@@ -599,7 +623,7 @@ ctdna-methylation-ml/
 │   ├── nfcore_gpu_methylseq/     # the same for nfcore-gpu mode
 │   ├── feature_qc/               # (nfcore/ for nfcore mode)
 │   ├── data_analysis/            # tables of notebooks/data_analysis.ipynb
-│   └── ml/                       # steps 08-10: tables, figures, ML_Report.docx
+│   └── ml/                       # steps 08-11: tables, figures, ML_Report.docx
 └── logs/
 ```
 
