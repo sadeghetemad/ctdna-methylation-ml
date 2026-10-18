@@ -8,7 +8,7 @@ dependencies:
   # data handling
   - pandas>=2.2
   - numpy>=1.26
-  - openpyxl 
+  - openpyxl
   # bioinformatics tools
   - fastqc
   - trim-galore
@@ -16,7 +16,7 @@ dependencies:
   - bowtie2
   - samtools
   - multiqc
-  - pysam           
+  - pysam
   # nfcore mode
   - nextflow>=24.10.5
   # analysis / ML notebooks
@@ -24,5 +24,6 @@ dependencies:
   - statsmodels
   - scikit-learn>=1.4
   - matplotlib
+  - python-docx
   - jupyterlab
   - ipykernel
