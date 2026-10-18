@@ -13,6 +13,9 @@
 /results/
 /notebooks/data/
 
+# Slides and speaker script (local only)
+/presentation/
+
 # Generated metadata (step 01) -- keep only the raw inputs
 /metadata/*
 !/metadata/raw/

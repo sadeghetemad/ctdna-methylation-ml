@@ -1,4 +1,4 @@
-# 🧬 Ultrasensitive ctDNA Detection via Deep Methylation Sequencing and Machine Learning
+# Ultrasensitive ctDNA Detection via Deep Methylation Sequencing and Machine Learning
 
 > An end-to-end pipeline from raw plasma cfDNA bisulfite sequencing reads to machine-learning models for early-stage lung cancer detection, built on the **ELSA** targeted methylation panel.
 
@@ -9,47 +9,47 @@
 
 ---
 
-## 📖 Table of Contents
+## Table of Contents
 
-- [Overview](#-overview)
-- [Pipeline at a Glance](#-pipeline-at-a-glance)
-- [Installation](#-installation)
-- [Quick Start](#-quick-start)
-- [Modes: custom, nf-core and nf-core GPU](#-modes-custom-nf-core-and-nf-core-gpu)
-- [Running on AWS Batch](#%EF%B8%8F-running-on-aws-batch)
-- [Steps](#-steps)
-- [Machine Learning](#-machine-learning)
-- [Configuration](#%EF%B8%8F-configuration)
-- [Resuming, Logging and Errors](#-resuming-logging-and-errors)
-- [Project Structure](#-project-structure)
-- [Disk Usage](#-disk-usage)
+- [Overview](#overview)
+- [Pipeline at a Glance](#pipeline-at-a-glance)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Modes: custom, nf-core and nf-core GPU](#modes-custom-nf-core-and-nf-core-gpu)
+- [Running on AWS Batch](#running-on-aws-batch)
+- [Steps](#steps)
+- [Machine Learning](#machine-learning)
+- [Configuration](#configuration)
+- [Resuming, Logging and Errors](#resuming-logging-and-errors)
+- [Project Structure](#project-structure)
+- [Disk Usage](#disk-usage)
 
 ---
 
-## 🔭 Overview
+## Overview
 
 This repository rebuilds the region-level methylation features used by the **ELSA** targeted bisulfite sequencing panel from public SRA data, then packages them for machine learning.
 
 | | |
 |---|---|
-| 🎯 **Task** | Stage I lung cancer (`ml_label = 1`) vs. non-cancer control (`ml_label = 0`) |
-| 🧪 **Assay** | Targeted bisulfite sequencing of plasma cfDNA, paired-end |
-| 📍 **Features** | Over the published ELSA plasma panel regions: coverage-weighted CpG methylation, plus read-level methylation and fragment-length features |
-| 🗺️ **Reference** | UCSC hg19 |
+| **Task** | Stage I lung cancer (`ml_label = 1`) vs. non-cancer control (`ml_label = 0`) |
+| **Assay** | Targeted bisulfite sequencing of plasma cfDNA, paired-end |
+| **Features** | Over the published ELSA plasma panel regions: coverage-weighted CpG methylation, plus read-level methylation and fragment-length features |
+| **Reference** | UCSC hg19 |
 
-The pipeline has seven steps. Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
+The pipeline has seven processing steps and three modelling steps. Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
 
 The read processing (step 03) runs in one of three **modes**: `custom`, our own commands; [nf-core/methylseq](https://nf-co.re/methylseq) with Bismark (`nfcore`); or nf-core/methylseq with GPU alignment (`nfcore-gpu`). All feed the same feature and ML steps.
 
 ---
 
-## 🗺️ Pipeline at a Glance
+## Pipeline at a Glance
 
 ```text
- 📋 Data            🗺️ Reference      🔬 Processing (step 03)          📊 Features                 🤖 ML
+ Data              Reference         Processing (step 03)            Features                     ML
 ┌─────────────┐   ┌─────────────┐   ┌───────────────────────────┐   ┌────────────────────────┐   ┌──────────────┐
 │ 01 metadata │   │ 02 hg19 +   │   │ custom: FastQC → trim →   │   │ 04 region methylation  │   │ 07 ML dataset│
-│    cohort   │ ─▶│    Bismark  │ ─▶│   align → dedup →         │ ─▶│ 05 read-level and      │ ─▶│ notebooks    │
+│    cohort   │ ─▶│    Bismark  │ ─▶│   align → dedup →         │ ─▶│ 05 read-level and      │ ─▶│ 08-10 models │
 │    download │   │    index    │   │   filter → extract        │   │    fragment features   │   │              │
 │             │   │             │   │ nfcore(-gpu): nf-core     │   │ 06 feature QC          │   │              │
 └─────────────┘   └─────────────┘   └───────────────────────────┘   └────────────────────────┘   └──────────────┘
@@ -57,7 +57,7 @@ The read processing (step 03) runs in one of three **modes**: `custom`, our own 
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 git clone https://github.com/sadeghetemad/ctdna-methylation-ml.git
@@ -79,7 +79,7 @@ conda activate ctdna10
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 Run all commands from the project root. To run every step in order:
 
@@ -95,13 +95,13 @@ python main.py --from 04 --to 07  # run a range of steps
 Or run the steps one by one:
 
 ```bash
-python scripts/01_data.py              # 📋 metadata, cohort, FASTQ download
-python scripts/02_reference.py         # 🗺️ hg19 and Bismark index (one time)
-python scripts/03_process_custom.py    # 🔬 FASTQ -> per-CpG methylation calls
-python scripts/04_features.py          # 📊 region-level matrix
+python scripts/01_data.py              # metadata, cohort, FASTQ download
+python scripts/02_reference.py         # hg19 and Bismark index (one time)
+python scripts/03_process_custom.py    # FASTQ -> per-CpG methylation calls
+python scripts/04_features.py          # region-level matrix
 python scripts/05_read_features.py     #    read-level and fragment features
 python scripts/06_feature_qc.py        #    feature QC
-python scripts/07_ml_dataset.py        # 🤖 ML-ready dataset
+python scripts/07_ml_dataset.py        # ML-ready dataset
 ```
 
 To set the number of threads (8 by default):
@@ -112,7 +112,7 @@ CTDNA_THREADS=16 python main.py
 
 ---
 
-## 🔀 Modes: custom, nf-core and nf-core GPU
+## Modes: custom, nf-core and nf-core GPU
 
 | | `custom` (default) | `nfcore` | `nfcore-gpu` |
 |---|---|---|---|
@@ -147,10 +147,10 @@ python main.py --mode nfcore --from 04
 ```
 
 `03_process_nfcore.py`:
-1. 📋 writes `data/nfcore/inputs/samplesheet.csv` from the cohort runs that have both FASTQ files. Runs without them are left out with a warning.
-2. 🗺️ writes the panel BED with UCSC names (`chr1, …`) to match `hg19.fa`.
-3. ▶️ runs nf-core/methylseq with `config/methylseq_params.yaml` and `config/methylseq.config`. If `reference/hg19/Bisulfite_Genome` exists, it is reused through `--bismark_index`.
-4. 🔗 links each run's `.bismark.cov.gz` to `data/nfcore/methylation/`.
+1. writes `data/nfcore/inputs/samplesheet.csv` from the cohort runs that have both FASTQ files. Runs without them are left out with a warning.
+2. writes the panel BED with UCSC names (`chr1, …`) to match `hg19.fa`.
+3. runs nf-core/methylseq with `config/methylseq_params.yaml` and `config/methylseq.config`. If `reference/hg19/Bisulfite_Genome` exists, it is reused through `--bismark_index`.
+4. links each run's `.bismark.cov.gz` to `data/nfcore/methylation/`.
 
 ### Running in nf-core GPU mode
 
@@ -212,7 +212,7 @@ python scripts/03_process_nfcore.py --dry-run
 
 ---
 
-## ☁️ Running on AWS Batch
+## Running on AWS Batch
 
 For the full cohort (hundreds of samples), run step 03 in `nfcore` mode on **AWS Batch**: every
 sample is its own Spot job, so the samples align in parallel instead of one after another. FASTQ
@@ -251,7 +251,7 @@ From a machine that already has `reference/hg19/` (hg19.fa and the Bismark index
 
 ```bash
 source <(terraform -chdir=infra/aws output -raw env_exports)
-python scripts/aws_stage.py reference         # ~17 GB
+python scripts/03_aws_stage.py reference         # ~17 GB
 ```
 
 ### 3. Prepare the head node
@@ -277,7 +277,7 @@ python scripts/01_data.py --stages metadata     # NOT "cohort": it would overwri
 
 ```bash
 tmux new -s ctdna                                # keeps running when the connection drops
-python scripts/aws_stage.py fastq --workers 12   # ENA -> S3, with MD5 check; rerun to retry
+python scripts/03_aws_stage.py fastq --workers 12   # ENA -> S3, with MD5 check; rerun to retry
 python scripts/03_process_nfcore.py --aws-batch  # submits the jobs, waits, downloads the results
 python main.py --mode nfcore --from 04           # features, QC, ML dataset
 ```
@@ -300,9 +300,9 @@ retries in `config/methylseq_awsbatch.config`. GPU mode is not supported on Batc
 
 ---
 
-## 🧩 Steps
+## Steps
 
-### 📋 `01_data.py`: metadata, cohort and download
+### `01_data.py`: metadata, cohort and download
 
 Three stages, run in order. Select them with `--stages metadata cohort download`.
 
@@ -328,17 +328,17 @@ python scripts/01_data.py --stages download
 
 ---
 
-### 🗺️ `02_reference.py`: hg19 reference and Bismark index (one time)
+### `02_reference.py`: hg19 reference and Bismark index (one time)
 
-Downloads the UCSC hg19 FASTA and builds the bisulfite-converted Bowtie2 index with `bismark prepare`. If the reference or the index already exists, that part is skipped. Both modes use this index.
+Downloads the UCSC hg19 FASTA and builds the bisulfite-converted Bowtie2 index with `bismark prepare`. If the reference or the index already exists, that part is skipped. The custom and nfcore modes align against this index; nfcore-gpu uses the FASTA only (bwa-meth builds its own index).
 
 **Output:** `reference/hg19/hg19.fa`, `reference/hg19/Bisulfite_Genome/`
 
 ---
 
-### 🔬 `03_process_custom.py`: FASTQ to per-CpG methylation calls (custom mode)
+### `03_process_custom.py`: FASTQ to per-CpG methylation calls (custom mode)
 
-Each cohort run with FASTQ files goes through these stages in order. In the nf-core modes, `03_process_nfcore.py` runs instead (see [Modes](#-modes-custom-nf-core-and-nf-core-gpu)).
+Each cohort run with FASTQ files goes through these stages in order. In the nf-core modes, `03_process_nfcore.py` runs instead (see [Modes](#modes-custom-nf-core-and-nf-core-gpu)).
 
 | Stage | What it does | Output |
 |---|---|---|
@@ -360,7 +360,7 @@ python scripts/03_process_custom.py --runs SRR9982549               # only some 
 
 ---
 
-### 📊 Features
+### Features
 
 #### `04_features.py`: region-level methylation matrix
 
@@ -370,11 +370,11 @@ Sums the CpG calls within each panel region into a **coverage-weighted methylati
 methylation_fraction = Σ methylated / Σ (methylated + unmethylated)
 ```
 
-- 📐 A CpG belongs to a region when `BED start + 1 ≤ CpG position ≤ BED end`.
-- 🏷️ Chromosome names are normalized to UCSC style (`1` → `chr1`).
-- ⚡ Aggregation is vectorized with binary search and cumulative sums.
-- 🕳️ A region with no calls is `NaN`.
-- ⚠️ Cohort samples without a coverage file are listed in `<cohort>_missing_samples.tsv`. With `--strict`, a missing sample stops the script with an error.
+- A CpG belongs to a region when `BED start + 1 ≤ CpG position ≤ BED end`.
+- Chromosome names are normalized to UCSC style (`1` → `chr1`).
+- Aggregation is vectorized with binary search and cumulative sums.
+- A region with no calls is `NaN`.
+- Cohort samples without a coverage file are listed in `<cohort>_missing_samples.tsv`. With `--strict`, a missing sample stops the script with an error.
 
 ```bash
 python scripts/04_features.py            # warn about missing samples
@@ -389,7 +389,7 @@ python scripts/04_features.py --strict   # fail if any sample is missing
 
 #### `05_read_features.py`: read-level and fragment features
 
-Step 04 averages all CpG calls of a region, which hides the few tumour-derived fragments in early-stage plasma. This step reads the BAMs of step 03 (see [Modes](#-modes-custom-nf-core-and-nf-core-gpu)) and keeps the **fragment** as the unit: the CpG calls of both mates are joined, and only CpGs inside the region count.
+Step 04 averages all CpG calls of a region, which hides the few tumour-derived fragments in early-stage plasma. This step reads the BAMs of step 03 (see [Modes](#modes-custom-nf-core-and-nf-core-gpu)) and keeps the **fragment** as the unit: the CpG calls of both mates are joined, and only CpGs inside the region count.
 
 | Feature | Per region | Supported by |
 |---|---|---|
@@ -403,12 +403,12 @@ Step 04 averages all CpG calls of a region, which hides the few tumour-derived f
 
 Per sample: median fragment length, share of fragments ≤ 150 bp, short (100–150 bp) / long (151–220 bp) ratio, and two QC values (`ch_filtered_fraction`, `r2_end_ch_meth`).
 
-Read filters, the same in all modes: proper pair, MAPQ ≥ 20, no secondary / supplementary / duplicate reads, and at most 3 methylated non-CpG calls per read (incomplete conversion).
+Read filters, the same in all modes: proper pair, MAPQ ≥ 20, no secondary / supplementary / duplicate / QC-fail reads, and at most 3 methylated non-CpG calls per read (incomplete conversion).
 
 > [!WARNING]
 > **End-repair artifact.** The ELSA adapters end in random bases, so the first ~8 bp of every R2 are filled in without bisulfite conversion and look ~90% methylated (inside the reads: ~6% CpG, ~0.5% CH). This step ignores all calls within 10 bp of the R2 start of each fragment, in both mates. The strength of the artifact differs between libraries (`r2_end_ch_meth`: ~65–70% in most samples, ~8% in SRR9982549). Step 03 also ignores the first 10 bp of R2 (`--ignore_r2 10`, MethylDackel `--nOT/--nOB`), so step 04 and `X_methylation` are clean once the methylation calls have been extracted again with these settings.
 
-Each run is cached in `features/read_features/` and processed again only when its BAM or the parameters change. About 2–3 minutes per sample; samples run in parallel (`CTDNA_THREADS`).
+Each run is cached in `features/[<mode>/]read_features/` and processed again only when its BAM or the parameters change. About 2–3 minutes per sample; samples run in parallel (`CTDNA_THREADS`).
 
 ```bash
 python scripts/05_read_features.py
@@ -431,12 +431,12 @@ python scripts/06_feature_qc.py
 
 ---
 
-### 🤖 ML Dataset
+### ML Dataset
 
 #### `07_ml_dataset.py`: build the ML-ready dataset
 
 Applies **label-free** filters only, to `X_methylation` and to every feature set of step 05:
-1. It masks values below a minimum read depth (`--min-depth` calls; `--min-frags` fragments for step 05).
+1. It masks values with too little support (`--min-depth` CpG calls for `X_methylation`; `--min-frags` fragments, or CpG calls for `meth`, for step 05).
 2. It drops regions with too many missing values.
 3. It drops constant regions (for example, regions without any methylated fragment in any sample for `frac_meth`).
 
@@ -450,14 +450,14 @@ python scripts/07_ml_dataset.py --min-depth 30 --max-missing 0.1 --out-dir noteb
 | Option | Default | Description |
 |---|---|---|
 | `--min-depth` | `20` | A value with fewer calls is set to `NaN` |
-| `--min-frags` | `10` | A step 05 value with fewer supporting fragments is set to `NaN` |
+| `--min-frags` | `10` | A step 05 value with fewer supporting fragments (CpG calls for `meth`) is set to `NaN` |
 | `--max-missing` | `0.2` | A region missing in a larger fraction of samples is dropped |
-| `--out-dir` | `notebooks/data` | Output directory |
+| `--out-dir` | `notebooks/data[/<mode>]` | Output directory |
 
 | Output | Content |
 |---|---|
 | `X_methylation.tsv` | Sample × region methylation matrix |
-| `X_coverage.tsv` | Matching read depth |
+| `X_coverage.tsv` | CpG calls behind each `X_methylation` value (kept regions) |
 | `X_<feature>.tsv` | One matrix per step 05 feature (`X_meth`, `X_frac_meth`, `X_mhl`, …), same sample order |
 | `X_sample.tsv` | Per-sample fragment-length features |
 | `samples.tsv` | Label, clinical covariates, `model_group`, `submission_series`, QC metrics |
@@ -469,31 +469,63 @@ python scripts/07_ml_dataset.py --min-depth 30 --max-missing 0.1 --out-dir noteb
 
 ---
 
-## 🤖 Machine Learning
+## Machine Learning
+
+### Data analysis notebook
+
+`notebooks/data_analysis.ipynb` explores the step 07 dataset before any modelling: cohort composition and covariates
+by class, data quality per feature set, technical confounding (depth, DNA input, the end-repair artifact, batch),
+per-region methylation differences with FDR, PCA by label and by batch, whether the region signal agrees between the
+two sequencing batches, redundancy between feature sets and univariate signal against a permutation null. Its tables
+are written to `results/data_analysis/`.
 
 ```bash
-jupyter lab
+jupyter lab notebooks/data_analysis.ipynb
 ```
 
-| Notebook | Description |
-|---|---|
-| 📓 `notebooks/01_EDA.ipynb` | Missingness, methylation distributions, PCA; for the step 05 features: quality, technical confounding, redundancy, univariate signal against a permutation null and cross-validated model impact (tables in `results/feature_eval/`) |
-| 📓 `notebooks/02_ML_baseline.ipynb` | Leakage-safe baseline: confounder checks, repeated stratified CV (Dummy, L2 logistic regression, in-fold top-k selection, random forest), permutation test, out-of-fold ROC, per-region statistics |
+### `08_ml_analysis.py`: modelling and evaluation
 
-The model outputs are written to `results/ml/`.
+Uses the study's split (`model_group`, Supplementary Table 6): `TV` (training/validation, 214 samples) is the
+development set and `SBT` (single-blind test, 246 samples) is scored once.
 
-The notebooks read `notebooks/data/`. For the nf-core mode dataset, set `DATA_DIR = ROOT / "notebooks/data/nfcore"` (`MODE = "nfcore"` in the feature section of `01_EDA.ipynb`).
+1. Fourteen pipelines (L1 / L2 logistic regression, ANOVA top-k, PCA, outlier count, SVM, random forest, gradient
+   boosting) on two inputs: region methylation (2,456 features) and methylation + the step 05 features (16,333).
+2. Nested CV on `TV`: 5 outer folds × 3 repeats, stratified by label × batch; an inner 3-fold grid search tunes each
+   pipeline. Imputation, scaling, selection and PCA are fit inside the training folds only.
+3. The best pipeline by nested AUC and an ensemble of the three best are fixed before the test set is used. The
+   threshold for 95% specificity comes from the `TV` out-of-fold scores.
+4. Every pipeline is refit on all of `TV` and scored on `SBT`: ROC-AUC and sensitivity with bootstrap CIs, AUC per
+   sequencing batch, a label-permutation test, a covariates-only model and CV inside each batch.
 
-**Best practices built into the notebooks**
+```bash
+python scripts/08_ml_analysis.py --data notebooks/data/nfcore_full --out results/ml/nfcore_paper
+```
 
-- ✅ Preprocessing runs inside an sklearn `Pipeline`, so it is fit on the training folds only.
-- ✅ A permutation test checks performance against chance.
-- ✅ Batch and demographic confounders are checked (`submission_series`, age, gender, DNA input).
-- ✅ `model_group` gives a held-out train/validation split, as in the original study.
+### `09_published_benchmark.py`: comparison with the published classifier
+
+Refits the selected pipeline (or every pipeline with `--all-models`) on `TV` and compares it on the same `SBT`
+samples with the per-sample calls of the published classifier (Supplementary Table 7), at the published
+specificity. The published calls are used only here, never as a feature.
+
+```bash
+python scripts/09_published_benchmark.py --data notebooks/data/nfcore_full --results results/ml/nfcore_paper --all-models
+```
+
+### `10_report.py`: Word report
+
+Builds `ML_Report.docx` from the outputs of steps 08 and 09, with a plain-language summary and the technical details.
+
+```bash
+python scripts/10_report.py --results results/ml/nfcore_paper --data notebooks/data/nfcore_full
+```
+
+> [!NOTE]
+> The `TV` group holds only one cancer from the smaller sequencing batch (SRR151), so the models do not transfer to
+> that batch on `SBT`. The report and the notebook show the per-batch results.
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 | Setting | Where | Default |
 |---|---|---|
@@ -502,7 +534,7 @@ The notebooks read `notebooks/data/`. For the nf-core mode dataset, set `DATA_DI
 | Cohort file | `CTDNA_COHORT_FILE` environment variable or `COHORT_FILE` in `scripts/utils.py`, read by every step | `metadata/test_cohort_10.tsv` |
 | Cohort size / seed | `N_PER_CLASS`, `SEED` in `01_data.py` | 5 + 5, `42` |
 | MAPQ threshold | `MIN_MAPQ` in `03_process_custom.py` and `05_read_features.py` | `20` |
-| Read-level features | `MIN_CPG`, `METH_CUTOFF`, `SHORT_MAX`, `IGNORE_R2_END` in `05_read_features.py` | 3 CpGs, 80%, 150 bp, 10 bp |
+| Read-level features | `MIN_CPG`, `METH_CUTOFF`, `SHORT_MAX` in `05_read_features.py` | 3 CpGs, 80%, 150 bp |
 | Trimming | `trim()` in `03_process_custom.py` | Q20, Illumina adapter, min length 20 |
 | nf-core parameters | `config/methylseq_params.yaml` | see [nf-core settings](#nf-core-settings) |
 | nf-core resources | `config/methylseq.config` | 8 CPUs, 28 GB, 72 h per job |
@@ -514,64 +546,66 @@ To run the **full cohort**, set `CTDNA_COHORT_FILE=metadata/primary_cohort_stage
 
 ---
 
-## 🔁 Resuming, Logging and Errors
+## Resuming, Logging and Errors
 
-- ♻️ **Resumable.** A step or stage skips a run only when that run's *final* outputs exist. For example, a filtered BAM counts only if its `.bai` index also exists. Runs that were interrupted are processed again.
-- 🛡️ **Atomic writes.** samtools writes to `*.tmp.bam` and renames the file only when it succeeds.
-- 📝 **Logs.** Each tool writes to `logs/<run>.<stage>.log`, and ENA responses are saved in `logs/ena/`.
-- 🚦 **Exit codes.** When a run fails, the step continues with the remaining runs, prints a summary and exits with code `1`. You can chain the steps safely with `&&` or a workflow manager.
-- 🔄 **Rerunning.** To rerun a stage for a sample, delete that sample's outputs for that stage.
+- **Resumable.** A step or stage skips a run only when that run's *final* outputs exist. For example, a filtered BAM counts only if its `.bai` index also exists. Runs that were interrupted are processed again.
+- **Atomic writes.** samtools writes to `*.tmp.bam` and renames the file only when it succeeds.
+- **Logs.** Each tool writes to `logs/<run>.<stage>.log`, and ENA responses are saved in `logs/ena/`.
+- **Exit codes.** When a run fails, the step continues with the remaining runs, prints a summary and exits with code `1`. You can chain the steps safely with `&&` or a workflow manager.
+- **Rerunning.** To rerun a stage for a sample, delete that sample's outputs for that stage.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```text
 ctdna-methylation-ml/
-├── 📄 README.md
-├── 📄 environment.yml            # conda environment
-├── 📄 main.py                    # runs all steps in order (--mode custom | nfcore | nfcore-gpu)
-├── 📂 scripts/
+├── README.md
+├── environment.yml               # conda environment
+├── main.py                       # runs steps 01-07 in order (--mode custom | nfcore | nfcore-gpu)
+├── scripts/
 │   ├── 01_data.py                # metadata, cohort, FASTQ download
 │   ├── 02_reference.py           # hg19 and Bismark index
+│   ├── 03_aws_stage.py           # AWS Batch only: FASTQ and reference -> S3, before step 03
 │   ├── 03_process_custom.py      # custom mode: FASTQ -> methylation calls
 │   ├── 03_process_nfcore.py      # nf-core modes: nf-core/methylseq (CPU or GPU)
 │   ├── 04_features.py            # region-level matrix
 │   ├── 05_read_features.py       # read-level and fragment features
 │   ├── 06_feature_qc.py          # feature QC
 │   ├── 07_ml_dataset.py          # ML-ready dataset
-│   ├── aws_stage.py              # AWS Batch: FASTQ and reference -> S3
+│   ├── 08_ml_analysis.py         # nested-CV modelling, held-out test on SBT
+│   ├── 09_published_benchmark.py # comparison with the published classifier
+│   ├── 10_report.py              # Word report of steps 08-09
 │   └── utils.py                  # shared paths, mode, cohort, logged command runner
-├── 📂 config/                    # nf-core/methylseq parameters and resources (local, GPU, AWS Batch)
-├── 📂 infra/aws/                 # Terraform: S3, Batch (Spot), IAM, head node
-├── 📂 metadata/
+├── notebooks/
+│   ├── data_analysis.ipynb       # features vs label, confounders, batches
+│   └── data/                     # ML-ready dataset of step 07 (not version-controlled)
+├── config/                       # nf-core/methylseq parameters and resources (local, GPU, AWS Batch)
+├── infra/aws/                    # Terraform: S3, Batch (Spot + on-demand), IAM, head node
+├── metadata/
 │   ├── raw/                      # SRA run table (input)
 │   ├── publication/              # supplementary tables (input)
 │   └── targets/                  # panel regions (BED + TSV)
-├── 📂 reference/hg19/            # FASTA + Bismark index
-├── 📂 data/                      # large intermediates (not version-controlled)
+├── reference/hg19/               # FASTA + Bismark index
+├── data/                         # large intermediates (not version-controlled)
 │   ├── fastq/  trimmed/  aligned/
 │   ├── dedup/  filtered/  methylation/
 │   ├── nfcore/                   # nfcore mode: inputs/, work/, methylation/
 │   └── nfcore-gpu/               # nfcore-gpu mode: the same
-├── 📂 features/                  # sample × region matrices (nfcore/ for nfcore mode)
-├── 📂 results/
+├── features/                     # sample × region matrices (nfcore/ for nfcore mode)
+├── results/
 │   ├── fastqc_raw/  fastqc_trimmed/
 │   ├── nfcore_methylseq/         # nf-core results and MultiQC report
 │   ├── nfcore_gpu_methylseq/     # the same for nfcore-gpu mode
 │   ├── feature_qc/               # (nfcore/ for nfcore mode)
-│   ├── feature_eval/             # step 05 feature evaluation from 01_EDA.ipynb
-│   └── ml/
-├── 📂 notebooks/
-│   ├── 01_EDA.ipynb
-│   ├── 02_ML_baseline.ipynb
-│   └── data/                     # ML-ready dataset (nfcore/ for nfcore mode)
-└── 📂 logs/
+│   ├── data_analysis/            # tables of notebooks/data_analysis.ipynb
+│   └── ml/                       # steps 08-10: tables, figures, ML_Report.docx
+└── logs/
 ```
 
 ---
 
-## 💾 Disk Usage
+## Disk Usage
 
 | Item | Approx. size |
 |---|---|
@@ -583,11 +617,11 @@ Once a sample has its `.bismark.cov.gz`, you can remove these files:
 
 | Path | Needed later? |
 |---|---|
-| `data/methylation/CHG_*`, `CHH_*` | ❌ Only CpG context is used |
-| `data/methylation/*.bedGraph.gz` | ❌ Step 04 reads `.bismark.cov.gz` |
-| `reference/hg19/hg19.fa.gz` | ❌ Once `hg19.fa` is extracted |
-| `data/filtered/*.namesort.bam` | ⚠️ Only to rerun the `extract` stage |
-| `data/trimmed/`, `data/aligned/`, `data/dedup/` | ⚠️ Only to rerun the `align` to `extract` stages |
+| `data/methylation/CHG_*`, `CHH_*` | No: only CpG context is used |
+| `data/methylation/*.bedGraph.gz` | No: step 04 reads `.bismark.cov.gz` |
+| `reference/hg19/hg19.fa.gz` | No, once `hg19.fa` is extracted |
+| `data/filtered/*.namesort.bam` | Only to rerun the `extract` stage |
+| `data/trimmed/`, `data/aligned/`, `data/dedup/` | Only to rerun the `align` to `extract` stages |
 
 > [!TIP]
 > Keep `data/methylation/*.extract_settings.json`: the `extract` stage checks for it to decide whether a sample is already done.
