@@ -2,6 +2,6 @@ region     = "eu-west-2"
 max_vcpus  = 256     # lower this if your Spot quota is smaller
 # bucket_name = "my-unique-bucket"
 
-# SSH access to the head node (optional – leave commented out to use Session Manager)
+# SSH access to the head node (optional; leave commented out to use Session Manager)
 # ssh_public_key    = "ssh-ed25519 AAAA..."   # paste output of: ssh-keygen -t ed25519 -f ~/.ssh/ctdna_head -N "" && cat ~/.ssh/ctdna_head.pub
 # ssh_allowed_cidrs = ["YOUR_IP/32"]           # your public IP: curl https://checkip.amazonaws.com

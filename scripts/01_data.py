@@ -256,6 +256,11 @@ def select_cohort():
     if not PRIMARY_COHORT.exists():
         sys.exit(f"Missing {PRIMARY_COHORT}; run the metadata stage first.")
 
+    # CTDNA_COHORT_FILE may point at the full cohort; never overwrite it with a sample
+    if COHORT_FILE.resolve() == PRIMARY_COHORT.resolve():
+        print(f"Working cohort is the primary cohort ({COHORT_FILE.name}); nothing to select.")
+        return
+
     df = pd.read_csv(PRIMARY_COHORT, sep="\t")
 
     cancer = df[df["ml_label"] == 1].sample(n=N_PER_CLASS, random_state=SEED)

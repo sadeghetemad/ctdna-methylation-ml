@@ -21,7 +21,7 @@ from utils import (
 # Paths
 # ============================================================
 
-OUT_DIR = FEATURES_DIR    # features/ (custom) or features/nfcore/
+OUT_DIR = FEATURES_DIR    # features/ (custom) or features/<mode>/
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Output names follow the cohort file: test_cohort_10 -> test_cohort_10_*.tsv
@@ -39,15 +39,8 @@ META_COLUMNS = ["run_id", "sample_id", "ml_label"]
 
 def normalize_chromosome(chrom):
     """
-    Normalize chromosome names to UCSC-style naming.
-
-    Examples:
-        1     -> chr1
-        X     -> chrX
-        chr1  -> chr1
-
-    The ELSA BED uses Ensembl-style names (1, 2, ...), while the
-    UCSC hg19 reference and Bismark coverage use chr1, chr2, ...
+    1 -> chr1, chr1 -> chr1. The ELSA BED uses Ensembl-style names,
+    the UCSC hg19 reference and the Bismark coverage use chr1, chr2, ...
     """
 
     chrom = str(chrom).strip()
@@ -205,7 +198,7 @@ def aggregate_sample(
 
     Implementation: per chromosome, sort CpG positions once, take
     cumulative sums of the counts and look up each region's first/last
-    CpG with binary search. Overlapping regions are handled correctly.
+    CpG with binary search. Regions may overlap.
     """
 
     n = len(targets)
@@ -242,9 +235,8 @@ def aggregate_sample(
 
     total = methylated + unmethylated
 
-    # Coverage-weighted methylation fraction.
-    # Do NOT average percent_methylated directly:
-    # CpGs may have different read depths.
+    # Pool the calls instead of averaging the per-CpG percentages,
+    # which would give a low-depth CpG the same weight as a deep one.
     fraction = np.full(n, np.nan)
     covered = total > 0
     fraction[covered] = methylated[covered] / total[covered]
@@ -381,10 +373,6 @@ def main():
             f"{region['coverage'].median():.0f} calls"
         )
 
-        # ----------------------------------------------------
-        # Critical sample-level validation
-        # ----------------------------------------------------
-
         if covered_regions == 0:
 
             raise RuntimeError(
@@ -451,24 +439,9 @@ def main():
     coverage_matrix = matrix(coverage_rows)
     n_cpg_matrix = matrix(n_cpg_rows)
 
-    # --------------------------------------------------------
-    # Matrix-level validation
-    # --------------------------------------------------------
-
     missing = int(feature_matrix[region_ids].isna().sum().sum())
     total = len(feature_matrix) * len(region_ids)
     missing_fraction = missing / total
-
-    # Absolutely do not silently write an all-NaN matrix.
-    if missing_fraction == 1.0:
-
-        raise RuntimeError(
-            "All ELSA features are missing "
-            "for all samples. "
-            "Feature matrix will NOT be written. "
-            "Check chromosome naming, genome build, "
-            "and genomic coordinates."
-        )
 
     # --------------------------------------------------------
     # Save

@@ -5,7 +5,8 @@ Step 04 averages all CpG calls of a region into one methylation fraction.
 That hides the few tumour-derived fragments in early-stage plasma. This
 step keeps the fragment as the unit: the CpG calls of both mates of a
 read pair are joined into one fragment (where the mates overlap, the
-first mate read wins), and only the CpGs inside the region count.
+call of the leftmost mate is kept), and only the CpGs inside the region
+count.
 
 End-repair artifact: the ELSA adapters end in random bases, so the first
 ~8 bp of every R2 (and the last bases of R1 on short fragments, which
@@ -32,9 +33,10 @@ Per region (sample x region matrices; NaN without any fragment):
 
 Per sample (one table):
     frag_median, frag_frac_short, frag_short_long_ratio, n_fragments
-                     fragment lengths of all proper pairs in the BAM
+                     lengths of all fragments in the BAM that pass the
+                     read filters (genome-wide, not only the panel)
     ch_filtered_fraction
-                     reads dropped by the non-conversion filter (QC)
+                     on-target reads dropped by the non-conversion filter (QC)
     r2_end_ch_meth   methylated share of the CH calls in the first
                      IGNORE_R2_END bp of R2: strength of the artifact (QC)
 
@@ -386,8 +388,9 @@ def region_features(fragments):
 
 def fragment_lengths(bam, qc):
     """
-    Lengths of all proper pairs, counted once through read 1; from read 2,
-    the CH methylation of its first IGNORE_R2_END bp (artifact QC).
+    Lengths of the fragments passing the read filters, counted once
+    through read 1; from read 2, the CH methylation of its first
+    IGNORE_R2_END bp (artifact QC).
     """
 
     counts = np.zeros(MAX_FRAGMENT + 1, dtype=np.int64)

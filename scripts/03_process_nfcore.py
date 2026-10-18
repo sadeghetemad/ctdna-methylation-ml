@@ -25,7 +25,7 @@ Usually run through main.py:
 
 AWS Batch (nfcore mode): every sample runs as its own Spot job, with the
 FASTQ files, reference and Nextflow work files in S3. Stage the inputs with
-scripts/aws_stage.py first; see README, "Running on AWS Batch".
+scripts/03_aws_stage.py first; see README, "Running on AWS Batch".
     python scripts/03_process_nfcore.py --aws-batch
     python scripts/03_process_nfcore.py --aws-batch --collect-only
 
@@ -102,7 +102,7 @@ def parse_args():
     p.add_argument("--aws-batch", action="store_true",
                    help="Run the samples as AWS Batch jobs, with inputs, work "
                         "files and results in s3://$CTDNA_S3_BUCKET (nfcore mode "
-                        "only). Stage the inputs first with scripts/aws_stage.py.")
+                        "only). Stage the inputs first with scripts/03_aws_stage.py.")
     p.add_argument("--no-bams", action="store_true",
                    help="With --aws-batch: do not download the deduplicated BAMs "
                         "(needed by step 05) from S3.")
@@ -411,7 +411,7 @@ def s3_base():
 
 
 def s3_runs_with_fastq(s3):
-    """Cohort runs with both FASTQ files in S3 (uploaded by aws_stage.py)."""
+    """Cohort runs with both FASTQ files in S3 (uploaded by 03_aws_stage.py)."""
 
     listing = subprocess.run(
         ["aws", "s3", "ls", f"{s3}/fastq/"], capture_output=True, text=True
@@ -428,7 +428,7 @@ def s3_runs_with_fastq(s3):
     if missing:
         print(f"WARNING: FASTQ files missing in S3 for {len(missing)} run(s), left out: "
               f"{', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''}")
-        print("         Run: python scripts/aws_stage.py fastq")
+        print("         Run: python scripts/03_aws_stage.py fastq")
 
     if not ready:
         sys.exit(f"No run of the cohort has both FASTQ files in {s3}/fastq/")

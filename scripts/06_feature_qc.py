@@ -2,7 +2,6 @@
 Step 06: QC tables of the feature matrix written by step 04.
 """
 
-import numpy as np
 import pandas as pd
 
 from utils import COHORT, EXPECTED_REGIONS, FEATURES_DIR, FEATURE_QC_DIR
@@ -14,10 +13,10 @@ from utils import COHORT, EXPECTED_REGIONS, FEATURES_DIR, FEATURE_QC_DIR
 
 FEATURE_FILE = FEATURES_DIR / f"{COHORT}_features.tsv"
 
-# Reads per region, also written by step 04; optional.
+# Methylated + unmethylated CpG calls per region, also from step 04; optional.
 COVERAGE_FILE = FEATURES_DIR / f"{COHORT}_coverage.tsv"
 
-OUT_DIR = FEATURE_QC_DIR    # results/feature_qc/ (custom) or .../nfcore/
+OUT_DIR = FEATURE_QC_DIR    # results/feature_qc/ (custom) or .../<mode>/
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -491,7 +490,7 @@ def main():
         )
 
     # --------------------------------------------------------
-    # Final validation
+    # Summary
     # --------------------------------------------------------
 
     print()

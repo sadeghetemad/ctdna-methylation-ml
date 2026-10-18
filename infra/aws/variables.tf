@@ -65,8 +65,9 @@ variable "create_head_node" {
 }
 
 variable "head_instance_type" {
-  type    = string
-  default = "m6i.xlarge"
+  description = "Instance type of the head node."
+  type        = string
+  default     = "m6i.xlarge"
 }
 
 variable "head_disk_gb" {

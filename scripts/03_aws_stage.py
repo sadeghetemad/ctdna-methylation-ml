@@ -11,8 +11,8 @@ Put the inputs of the AWS Batch run into S3 (before step 03 --aws-batch).
 The bucket comes from CTDNA_S3_BUCKET (terraform output env_exports).
 
 Examples:
-    python scripts/aws_stage.py reference
-    python scripts/aws_stage.py fastq --workers 12
+    python scripts/03_aws_stage.py reference
+    python scripts/03_aws_stage.py fastq --workers 12
 """
 
 import argparse

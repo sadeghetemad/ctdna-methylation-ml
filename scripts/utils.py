@@ -75,7 +75,7 @@ BAM_FILES = {
 METH_DIR, COV_SUFFIX = COV_FILES[MODE]
 BAM_DIR, BAM_SUFFIX = BAM_FILES[MODE]
 
-# The first bp of every R2 are filled in without bisulfite conversion by the
+# The first ~8 bp of every R2 are filled in without bisulfite conversion by the
 # ELSA library prep and look ~90% methylated; every methylation caller
 # ignores them (Bismark --ignore_r2, MethylDackel --nOT/--nOB, step 05).
 IGNORE_R2_END = 10
@@ -220,13 +220,16 @@ def run_pipe(producer, consumer, log_file):
             stdout=subprocess.PIPE,
             stderr=log,
         )
-        second = subprocess.run(
+        second = subprocess.Popen(
             [str(x) for x in consumer],
             stdin=first.stdout,
             stdout=log,
             stderr=subprocess.STDOUT,
         )
+        # Only the consumer may hold the read end, or the producer blocks
+        # forever instead of getting SIGPIPE when the consumer exits early
         first.stdout.close()
+        second.wait()
         first.wait()
 
     _check(first.returncode, producer, log_file)

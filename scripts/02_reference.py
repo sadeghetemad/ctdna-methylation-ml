@@ -1,8 +1,9 @@
 """
-Step 02: UCSC hg19 FASTA and its Bismark index (one time, both modes).
+Step 02: UCSC hg19 FASTA and its Bismark index (one time).
 
-nfcore mode reuses the index through --bismark_index, unless
-03_process_nfcore.py --build-index is given.
+custom mode aligns against the index; nfcore mode reuses it through
+--bismark_index unless 03_process_nfcore.py --build-index is given.
+nfcore-gpu mode uses the FASTA only (bwa-meth builds its own index).
 """
 
 import gzip
@@ -27,7 +28,10 @@ def main():
     else:
         if not FASTA_GZ.exists():
             print(f"[DOWNLOAD] {URL}")
-            urllib.request.urlretrieve(URL, FASTA_GZ)
+            # Via .part: an interrupted download would otherwise count as done
+            part = FASTA_GZ.with_name(FASTA_GZ.name + ".part")
+            urllib.request.urlretrieve(URL, part)
+            part.rename(FASTA_GZ)
 
         print(f"[EXTRACT] {FASTA.name}")
         tmp = FASTA.with_name(FASTA.name + ".tmp")

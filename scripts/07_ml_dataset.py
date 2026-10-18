@@ -1,5 +1,5 @@
 """
-Step 07: the ML-ready dataset used by notebooks/02_ML_baseline.ipynb.
+Step 07: the ML-ready dataset used by notebooks/data_analysis.ipynb and scripts 08-10.
 
 Inputs:
   features/<cohort>_features.tsv    methylation fraction per sample x region (04)
@@ -13,20 +13,20 @@ Outputs (notebooks/data/):
   X_methylation.tsv   sample_id x kept regions, low-depth values set to NaN
   X_coverage.tsv      same shape, methylation calls (for weighting / QC)
   X_<feature>.tsv     one per read-level feature of step 05 (frac_meth, mhl, ...),
-                      values with fewer than --min-frags fragments set to NaN,
-                      regions filtered like X_methylation
+                      values with fewer than --min-frags supporting fragments
+                      (CpG calls for meth) set to NaN, regions filtered like
+                      X_methylation
   X_sample.tsv        sample-level fragment-length features (frag_*)
   samples.tsv         labels + covariates, one row per sample in X
   regions.tsv         all 2473 regions, with QC stats and kept/drop reason
   dataset_info.json   parameters and counts
 
-In nfcore mode (CTDNA_MODE=nfcore) the inputs are read from features/nfcore/
-and the outputs go to notebooks/data/nfcore/.
+In the nf-core modes (CTDNA_MODE=nfcore / nfcore-gpu) the inputs are read
+from features/<mode>/ and the outputs go to notebooks/data/<mode>/.
 
-Deliberately NOT done here (must happen inside cross-validation folds to
-avoid information leakage): imputation, scaling, feature selection.
-Only label-free filters are applied (per-value depth mask, region
-missingness, constant regions).
+Imputation, scaling and feature selection are left to the modelling code,
+inside the cross-validation folds. Only label-free filters are applied here
+(per-value depth mask, region missingness, constant regions).
 """
 
 import argparse
@@ -75,7 +75,7 @@ def parse_args():
 
     p = argparse.ArgumentParser(
         description="Build the ML-ready dataset in notebooks/data/ "
-                    "(notebooks/data/nfcore/ in nfcore mode)."
+                    "(notebooks/data/<mode>/ in the nf-core modes)."
     )
 
     p.add_argument(
@@ -97,14 +97,14 @@ def parse_args():
         type=int,
         default=10,
         help="Set a read-level value to NaN if fewer fragments support it "
-             "(default: 10).",
+             "(CpG calls for meth; default: 10).",
     )
     p.add_argument(
         "--out-dir",
         type=Path,
         default=ML_DATA_DIR,
         help="Output directory (default: notebooks/data, "
-             "or notebooks/data/nfcore in nfcore mode).",
+             "or notebooks/data/<mode> in the nf-core modes).",
     )
 
     return p.parse_args()
@@ -136,7 +136,8 @@ def region_filter(X, max_missing):
 def read_feature_sets(index, args):
     """
     X_<feature> of step 05, aligned to the samples of X_methylation.
-    Values with fewer than --min-frags supporting fragments become NaN.
+    Values with fewer than --min-frags supporting fragments (CpG calls
+    for meth) become NaN.
     """
 
     sets = {}
@@ -362,7 +363,7 @@ def main():
     (out_dir / "dataset_info.json").write_text(json.dumps(info, indent=2))
 
     print()
-    print(f"Labels: " + ", ".join(f"{k}={v}" for k, v in label_counts.items()))
+    print("Labels: " + ", ".join(f"{k}={v}" for k, v in label_counts.items()))
     print(f"Saved to: {out_dir}")
     for path in sorted(out_dir.glob("*")):
         if path.is_file():

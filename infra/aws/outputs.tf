@@ -25,7 +25,7 @@ output "ssm_command" {
 
 # terraform output -raw env_exports > ~/ctdna_aws.env && source ~/ctdna_aws.env
 output "env_exports" {
-  description = "Environment variables read by scripts/03_process_nfcore.py --aws-batch and scripts/aws_stage.py."
+  description = "Environment variables read by scripts/03_process_nfcore.py --aws-batch and scripts/03_aws_stage.py."
   value       = <<-EOT
     export AWS_REGION=${var.region}
     export CTDNA_S3_BUCKET=${aws_s3_bucket.data.bucket}
