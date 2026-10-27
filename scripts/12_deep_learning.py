@@ -1,5 +1,5 @@
 """
-16_deep_learning.py: deep-learning models on the same designs, folds and evaluation as 15.
+12_deep_learning.py: deep-learning models on the same designs, folds and evaluation as 11.
 
     MLP                  two hidden layers on the in-fold selected features (FoldSelector, k = 200)
     FT-Transformer       every selected feature becomes a token (per-feature linear embedding), a CLS
@@ -11,9 +11,9 @@
 
 Small data (a few hundred samples): AdamW with weight decay, dropout, token dropout for the Region
 Transformer, early stopping on a stratified 20% validation split of each training fold, and an ensemble
-of seeds. Test scores are the mean over the outer-fold models, as in 15.
+of seeds. Test scores are the mean over the outer-fold models, as in 11.
 
-Outputs (results/modelling/16_deep/<design>/): results.tsv, subgroups.tsv, predictions.tsv,
+Outputs (results/modelling/12_deep/<design>/): results.tsv, subgroups.tsv, predictions.tsv,
 region_attention.tsv, fig_curves.png, fig_region_attention.png, results.json
 """
 
@@ -36,7 +36,7 @@ from sklearn.metrics import roc_auc_score  # noqa: E402
 from sklearn.model_selection import train_test_split  # noqa: E402
 from sklearn.preprocessing import StandardScaler  # noqa: E402
 
-from ml_common import OUT, SEED, fold_vote, designs, family, load, log, out_dir, outer_folds, region, summarise  # noqa: E402
+from ml_common import DESIGNS, OUT, SEED, fold_vote, designs, family, load, log, out_dir, outer_folds, region, summarise  # noqa: E402
 from ml_selection import FoldSelector  # noqa: E402
 
 warnings.filterwarnings("ignore")
@@ -225,7 +225,7 @@ def run_fold(kind, data, tr, va, te_rows, cfg, seed):
 
 def main():
     ap = argparse.ArgumentParser(description="Deep-learning models: MLP, FT-Transformer, Region Transformer.")
-    ap.add_argument("--design", default="balanced", choices=["balanced", "study"])
+    ap.add_argument("--design", default="balanced", choices=list(DESIGNS))
     ap.add_argument("--seeds", type=int, default=5, help="Ensemble members per fold.")
     ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--regions", type=int, default=128)
@@ -234,7 +234,7 @@ def main():
     args = ap.parse_args()
     if args.quick:
         args.seeds, args.epochs = 1, 30
-    out = out_dir(f"16_deep/{args.design}")
+    out = out_dir(f"12_deep/{args.design}")
     samples, X, regions = load()
     tr_idx, te_idx = designs(samples)[args.design]
     order = list(tr_idx) + list(te_idx)
@@ -292,7 +292,7 @@ def main():
     pd.DataFrame(subs).to_csv(out / "subgroups.tsv", sep="\t", index=False)
     pd.DataFrame(pred).to_csv(out / "predictions.tsv", sep="\t", index=False)
     att = pd.DataFrame({"region": reg_ids, "attention": att_total / max(att_total.sum(), 1e-12)})
-    ann = OUT / "12_annotation/region_genes.tsv"
+    ann = OUT / "08_annotation/region_genes.tsv"
     if ann.exists():
         att = att.join(pd.read_csv(ann, sep="\t", index_col="region_id")[["gene", "promoter"]], on="region")
     att = att.sort_values("attention", ascending=False)

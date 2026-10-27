@@ -1,4 +1,4 @@
-"""In-fold feature selection shared by the modelling scripts (the steps of 14_feature_selection.py)."""
+"""In-fold feature selection shared by the modelling scripts (the steps of 10_feature_selection.py)."""
 
 import numpy as np
 import pandas as pd

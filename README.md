@@ -37,7 +37,7 @@ This repository rebuilds the region-level methylation features used by the **ELS
 | **Features** | Over the published ELSA plasma panel regions: coverage-weighted CpG methylation, plus read-level methylation and fragment-length features |
 | **Reference** | UCSC hg19 |
 
-The pipeline has seven processing steps (01-07) and ten modelling and analysis steps (08-17). Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
+The pipeline has seven processing steps (01-07) and six modelling steps (08-13). Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
 
 The read processing (step 03) runs in one of three **modes**: `custom`, our own commands; [nf-core/methylseq](https://nf-co.re/methylseq) with Bismark (`nfcore`); or nf-core/methylseq with GPU alignment (`nfcore-gpu`). All feed the same feature and ML steps.
 
@@ -49,7 +49,7 @@ The read processing (step 03) runs in one of three **modes**: `custom`, our own 
  Data              Reference         Processing (step 03)            Features                     ML
 ┌─────────────┐   ┌─────────────┐   ┌───────────────────────────┐   ┌────────────────────────┐   ┌──────────────┐
 │ 01 metadata │   │ 02 hg19 +   │   │ custom: FastQC → trim →   │   │ 04 region methylation  │   │ 07 ML dataset│
-│    cohort   │ ─▶│    Bismark  │ ─▶│   align → dedup →         │ ─▶│ 05 read-level and      │ ─▶│ 08-17 models │
+│    cohort   │ ─▶│    Bismark  │ ─▶│   align → dedup →         │ ─▶│ 05 read-level and      │ ─▶│ 08-13 models │
 │    download │   │    index    │   │   filter → extract        │   │    fragment features   │   │              │
 │             │   │             │   │ nfcore(-gpu): nf-core     │   │ 06 feature QC          │   │              │
 └─────────────┘   └─────────────┘   └───────────────────────────┘   └────────────────────────┘   └──────────────┘
@@ -483,102 +483,48 @@ are written to `results/data_analysis/`.
 jupyter lab notebooks/data_analysis.ipynb
 ```
 
-### `08_ml_analysis.py`: modelling and evaluation
+### Modelling suite (`08`-`13`)
 
-Uses the study's split (`model_group`, Supplementary Table 6): `TV` (training/validation, 214 samples) is the
-development set and `SBT` (single-blind test, 246 samples) is scored once.
-
-1. Fourteen pipelines (L1 / L2 logistic regression, ANOVA top-k, PCA, outlier count, SVM, random forest, gradient
-   boosting) on two inputs: region methylation (2,456 features) and methylation + the step 05 features (16,333).
-2. Nested CV on `TV`: 5 outer folds × 3 repeats, stratified by label × batch; an inner 3-fold grid search tunes each
-   pipeline. Imputation, scaling, selection and PCA are fit inside the training folds only.
-3. The best pipeline by nested AUC and an ensemble of the three best are fixed before the test set is used. The
-   threshold for 95% specificity comes from the `TV` out-of-fold scores.
-4. Every pipeline is refit on all of `TV` and scored on `SBT`: ROC-AUC and sensitivity with bootstrap CIs, AUC per
-   sequencing batch, a label-permutation test, a covariates-only model and CV inside each batch.
-
-```bash
-python scripts/08_ml_analysis.py --data data/ml_dataset/nfcore --out results/ml/nfcore_paper
-```
-
-### `09_published_benchmark.py`: comparison with the published classifier
-
-Refits the selected pipeline (or every pipeline with `--all-models`) on `TV` and compares it on the same `SBT`
-samples with the per-sample calls of the published classifier (Supplementary Table 7), at the published
-specificity. The published calls are used only here, never as a feature.
-
-```bash
-python scripts/09_published_benchmark.py --data data/ml_dataset/nfcore --results results/ml/nfcore_paper --all-models
-```
-
-### `10_report.py`: Word report
-
-Builds `ML_Report.docx` from the outputs of steps 08 and 09, with a plain-language summary and the technical details.
-
-```bash
-python scripts/10_report.py --results results/ml/nfcore_paper --data data/ml_dataset/nfcore
-```
-
-### `11_ml_improved.py`: model variants for batch transfer and screening specificity
-
-Three evaluation designs: nested CV pooled over all samples (5 folds × 3 repeats, stratified by label × batch, so
-both batches contribute cancers to every training set), leave one batch out, and the study's split for comparison.
-New pipelines next to the step 08 references:
-
-- **clean**: `meth` (CpG calls without the end-repair artifact), technical covariates regressed out on the training
-  controls, each batch centred on its own training controls
-- **burden**: per region, methylated fragments and CpG calls above the training-control rate, one-sided and with the
-  between-sample spread of the controls (overdispersion), per region or summed over the most informative regions
-- **clean + burden**: both together
-
-Each pipeline is tuned by ROC-AUC and by partial AUC at FPR ≤ 5%. The inner-CV fold models are kept and averaged,
-and the 95%-specificity threshold comes from their own out-of-fold control scores, so it transfers to new data.
-
-```bash
-python scripts/11_ml_improved.py --data data/ml_dataset/nfcore --features features/nfcore --out results/ml/improved
-```
-
-On the single-blind test set, the model chosen by pooled partial AUC (clean + burden) finds 46% of Stage I cancers at
-96.4% specificity with the threshold fixed on `TV` (step 08 model: 47% at 88% specificity, 26% at 96%), partial AUC
-0.69 vs 0.59, overall AUC 0.74 vs 0.76. Leave-one-batch-out stays at AUC 0.46–0.65 for every pipeline.
-
-> [!NOTE]
-> The `TV` group holds only one cancer from the smaller sequencing batch (SRR151), so the models do not transfer to
-> that batch on `SBT`. The report and the notebook show the per-batch results.
-
-### Modelling suite: feature selection, classical ML, SHAP, deep learning (`12`-`17`)
-
-A second, self-contained modelling suite on the same dataset, with its own designs, in-fold feature selection,
-explanations and a fairness audit. Shared code: `scripts/ml_common.py` (data, designs, folds, metrics, subgroups)
-and `scripts/ml_selection.py` (in-fold feature selection). Outputs go to `results/modelling/<step>/`.
+Steps 08-13 turn the step 07 dataset into validated, explained models. Shared code: `scripts/ml_common.py`
+(data, designs, folds, metrics, subgroups, the published calls) and `scripts/ml_selection.py` (in-fold feature
+selection). Outputs go to `results/modelling/<step>/[<design>/]`.
 
 | Step | Script | What it does |
 |---|---|---|
-| 12 | `12_annotate_regions.py` | Nearest gene and promoter flag for every panel region (UCSC hg19 refGene, downloaded once) |
-| 13 | `13_dataset_design.py` | Train / test designs and their balance audit: class, batch, sex, age, standardised mean differences |
-| 14 | `14_feature_selection.py` | Quality filter → single-feature AUC with FDR → correlation pruning → stability selection (16,333 → 25) |
-| 15 | `15_classical_ml.py` | L2 / elastic-net logistic, SVM, random forest, extra trees, gradient boosting, XGBoost, LightGBM; SHAP |
-| 16 | `16_deep_learning.py` | MLP, FT-Transformer, Region Transformer (panel regions as tokens), with attention per region |
-| 17 | `17_compare_models.py` | Head-to-head table, paired bootstrap, ROC, fairness heatmap, calibration |
+| 08 | `08_annotate_regions.py` | Nearest gene and promoter flag for every panel region (UCSC hg19 refGene, downloaded once) |
+| 09 | `09_dataset_design.py` | The three designs and their balance audit: class, batch, sex, age, standardised mean differences |
+| 10 | `10_feature_selection.py` | Quality filter → single-feature AUC with FDR → correlation pruning → stability selection (16,333 → 25) |
+| 11 | `11_classical_ml.py` | L2 / elastic-net logistic, SVM, random forest, extra trees, gradient boosting, XGBoost, LightGBM; SHAP; a covariates-only reference; a permutation test of the best model |
+| 12 | `12_deep_learning.py` | MLP, FT-Transformer, Region Transformer (panel regions as tokens), with attention per region |
+| 13 | `13_compare_models.py` | Head-to-head table, paired bootstrap, ROC, fairness heatmap, calibration; on the study design, the benchmark against the published classifier |
 
-Designs: **balanced** (main), a 30% hold-out stratified on label × sequencing batch × sex × age band (322 / 138);
-**study**, the publication's TV → SBT groups (214 / 246), for comparison. Selection, imputation, scaling, tuning and
-thresholds are fitted on training data only and refitted in every fold; test scores are the mean of the outer-fold
-models, and a patient is called positive when most fold models call it at their own 95%-specificity threshold. Sex
-and age stratify and audit the split but are never model inputs.
+**Designs** (`--design`):
+
+- `balanced` (main): 30% hold-out stratified on label × sequencing batch × sex × age band (322 / 138).
+- `study`: the publication's groups, TV → SBT (214 / 246). Its training group holds one cancer from the smaller
+  batch; the published classifier's calls (Supplementary Table 7) are compared on its test group only.
+- `lobo`: leave one batch out, train on the larger sequencing batch (352), test on the smaller one (108).
+
+**Rules.** Selection, imputation, scaling, tuning and thresholds are fitted on training data only and refitted in
+every fold. Test scores are the mean of the outer-fold models; a patient is called positive when most fold models
+call it at their own 95%-specificity threshold. Sex and age stratify and audit the split but are never model
+inputs; classes are weighted for the 43% cancer share. The published calls are used only as a benchmark.
 
 ```bash
 cd scripts
-python 12_annotate_regions.py
-python 13_dataset_design.py
-python 14_feature_selection.py
-python 15_classical_ml.py --design balanced     # also --design study; --quick for a smoke test
-python 16_deep_learning.py --design balanced    # needs torch
-python 17_compare_models.py --design balanced
+python 08_annotate_regions.py
+python 09_dataset_design.py
+python 10_feature_selection.py
+for d in balanced study lobo; do
+  python 11_classical_ml.py --design $d        # --quick for a smoke test
+  python 12_deep_learning.py --design $d       # needs torch
+  python 13_compare_models.py --design $d
+done
 ```
 
-Optional packages: `torch` (16), `shap`, `xgboost`, `lightgbm` (15; without shap, permutation importance is used).
-`CTDNA_ML_DATA` and `CTDNA_ML_OUT` override the input and output folders.
+Optional packages: `torch` (12), `shap`, `xgboost`, `lightgbm` (11; without shap, permutation importance is used).
+`CTDNA_ML_DATA` and `CTDNA_ML_OUT` override the input and output folders. About 25 minutes for all three designs
+on 16 vCPUs.
 
 ---
 
@@ -630,18 +576,14 @@ ctdna-methylation-ml/
 │   ├── 05_read_features.py       # read-level and fragment features
 │   ├── 06_feature_qc.py          # feature QC
 │   ├── 07_ml_dataset.py          # ML-ready dataset -> data/ml_dataset/
-│   ├── 08_ml_analysis.py         # nested-CV modelling on the study split (TV -> SBT)
-│   ├── 09_published_benchmark.py # comparison with the published classifier
-│   ├── 10_report.py              # Word report of steps 08-09
-│   ├── 11_ml_improved.py         # pooled / leave-one-batch-out CV, tumour-fragment score (needs features/)
-│   ├── 12_annotate_regions.py    # nearest gene per panel region
-│   ├── 13_dataset_design.py      # balanced and study designs, balance audit
-│   ├── 14_feature_selection.py   # 16,333 -> 25 features (quality, FDR, pruning, stability)
-│   ├── 15_classical_ml.py        # classical ML with in-fold selection, SHAP, fairness audit
-│   ├── 16_deep_learning.py       # MLP, FT-Transformer, Region Transformer
-│   ├── 17_compare_models.py      # head-to-head comparison and fairness
-│   ├── ml_common.py              # shared data, designs, folds, metrics (12-17)
-│   ├── ml_selection.py           # in-fold feature selection (14-16)
+│   ├── 08_annotate_regions.py    # nearest gene per panel region
+│   ├── 09_dataset_design.py      # balanced, study and leave-one-batch-out designs, balance audit
+│   ├── 10_feature_selection.py   # 16,333 -> 25 features (quality, FDR, pruning, stability)
+│   ├── 11_classical_ml.py        # classical ML, SHAP, covariates-only reference, permutation test
+│   ├── 12_deep_learning.py       # MLP, FT-Transformer, Region Transformer
+│   ├── 13_compare_models.py      # comparison, fairness, benchmark vs the published classifier
+│   ├── ml_common.py              # shared data, designs, folds, metrics, published calls (08-13)
+│   ├── ml_selection.py           # in-fold feature selection (10-12)
 │   └── utils.py                  # shared paths, mode, cohort, logged command runner
 ├── notebooks/
 │   └── data_analysis.ipynb       # features vs label, confounders, batches
@@ -660,14 +602,13 @@ ctdna-methylation-ml/
 └── results/                      # not version-controlled
     ├── feature_qc/               # step 06
     ├── data_analysis/            # tables of notebooks/data_analysis.ipynb
-    ├── ml/                       # steps 08-11: nfcore_paper/ (study split), improved/
-    └── modelling/                # steps 12-17: 12_annotation/ ... 17_compare/
+    └── modelling/                # steps 08-13: 08_annotation/ ... 13_compare/
 ```
 
 > [!NOTE]
 > Only the ML-ready dataset of all samples and the final results are kept locally. Raw reads, alignments,
 > methylation calls and the feature tables of steps 04-05 live in the project's S3 bucket (`fastq/`, `results/`,
-> `head-node-backup/features/`); rerun steps 04-07, or `11_ml_improved.py`, where those files are available.
+> `head-node-backup/features/`); rerun steps 04-07 where those files are available.
 
 ---
 

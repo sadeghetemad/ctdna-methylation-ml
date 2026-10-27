@@ -1,5 +1,5 @@
 """
-Step 07: the ML-ready dataset used by notebooks/data_analysis.ipynb and scripts 08-17.
+Step 07: the ML-ready dataset used by notebooks/data_analysis.ipynb and scripts 08-13.
 
 Inputs:
   features/<cohort>_features.tsv    methylation fraction per sample x region (04)

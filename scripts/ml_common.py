@@ -1,4 +1,4 @@
-"""Shared data loading, splits and metrics for the modelling scripts 12-17."""
+"""Shared data loading, splits and metrics for the modelling scripts 08-13."""
 
 import json
 import os
@@ -89,11 +89,34 @@ def balanced_split(samples, test_size=0.3, seed=SEED):
     return pd.Index(tr), pd.Index(te)
 
 
+DESIGNS = ("balanced", "study", "lobo")
+SUPPLEMENTARY = ROOT / "metadata/publication/ELSA_supplementary_tables.xlsx"
+
+
 def designs(samples):
-    """name -> (train index, test index)."""
+    """name -> (train index, test index).
+
+    balanced   30% hold-out stratified on label x batch x sex x age band
+    study      the publication's groups, TV -> SBT
+    lobo       leave one batch out: train on the larger sequencing batch, test on the smaller one
+    """
     tr, te = balanced_split(samples)
-    g = samples["model_group"]
-    return {"balanced": (tr, te), "study": (samples.index[g == "TV"], samples.index[g == "SBT"])}
+    g, b = samples["model_group"], samples["submission_series"]
+    big = b.value_counts().index[0]
+    return {"balanced": (tr, te), "study": (samples.index[g == "TV"], samples.index[g == "SBT"]),
+            "lobo": (samples.index[b == big], samples.index[b != big])}
+
+
+def published_calls():
+    """Per-sample calls of the published classifier (Supplementary Table 7): 1 = tumour."""
+    raw = pd.read_excel(SUPPLEMENTARY, sheet_name="Supplementary Table 7", header=None)
+    cols = ["sample_id", "predicted", "ground_truth", "stage", "cancer_type", "max_diameter_cm", "model_group",
+            "age", "gender", "dna_input_ng", "dna_concentration_ng_ul"]
+    cancer, control = raw.iloc[2:311, :11].copy(), raw.iloc[313:, :11].copy()
+    cancer.columns = control.columns = cols
+    t = pd.concat([cancer, control])
+    t = t[t["sample_id"].astype(str).str.match(r"^BMD\d+$", na=False)]
+    return t.set_index("sample_id")["predicted"].astype(str).str.lower().eq("tumor").astype(int)
 
 
 def cv_folds(y, key, n_splits=5, seed=SEED):

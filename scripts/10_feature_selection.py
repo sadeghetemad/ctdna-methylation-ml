@@ -1,5 +1,5 @@
 """
-14_feature_selection.py: from 16,333 features to a small, stable and interpretable panel.
+10_feature_selection.py: from 16,333 features to a small, stable and interpretable panel.
 
 Learned on the training part of a design only (default: balanced); the test part is not read.
 
@@ -11,10 +11,10 @@ Learned on the training part of a design only (default: balanced); the test part
                    ~80 features per fit) on 200 stratified half-samples; the panel is every feature
                    selected in >= 50% of them
 
-The same steps run inside the cross-validation folds of 15 and 16, so the model evaluation never sees a
+The same steps run inside the cross-validation folds of 11 and 12, so the model evaluation never sees a
 panel chosen on its own test samples. This script reports what the selection keeps and why.
 
-Outputs (results/modelling/14_features/): funnel.json, features.tsv (all features with their statistics),
+Outputs (results/modelling/10_features/): funnel.json, features.tsv (all features with their statistics),
 panel.tsv, family_funnel.tsv, fig_funnel.png, fig_families.png, fig_volcano.png, fig_stability.png
 """
 
@@ -33,7 +33,7 @@ from scipy import stats  # noqa: E402
 from sklearn.model_selection import StratifiedShuffleSplit  # noqa: E402
 from statsmodels.stats.multitest import multipletests  # noqa: E402
 
-from ml_common import FAMILIES, OUT, SEED, designs, family, load, log, logreg, out_dir, region, strata  # noqa: E402
+from ml_common import DESIGNS, FAMILIES, OUT, SEED, designs, family, load, log, logreg, out_dir, region, strata  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
@@ -101,13 +101,13 @@ def stability(X, y, key, n=200, C=0.2, jobs=-1):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    ap.add_argument("--design", default="balanced", choices=["balanced", "study"])
+    ap.add_argument("--design", default="balanced", choices=list(DESIGNS))
     ap.add_argument("--subsamples", type=int, default=200)
     ap.add_argument("--min-freq", type=float, default=0.5)
     ap.add_argument("--panel-size", type=int, default=25, help="Minimum panel size (most stable first).")
     ap.add_argument("--C", type=float, default=0.2, help="L1 strength of the stability selection.")
     args = ap.parse_args()
-    out = out_dir("14_features")
+    out = out_dir("10_features")
     samples, X, _ = load()
     tr, _ = designs(samples)[args.design]
     Xt, st_s = X.loc[tr], samples.loc[tr]
@@ -131,7 +131,7 @@ def main():
     feats["stability"] = freq.reindex(feats.index)
     feats["in_panel"] = feats.index.isin(panel.index)
     feats["direction"] = np.where(feats["auc"] >= 0.5, "higher in cancer", "lower in cancer")
-    ann_path = OUT / "12_annotation/region_genes.tsv"
+    ann_path = OUT / "08_annotation/region_genes.tsv"
     if ann_path.exists():
         ann = pd.read_csv(ann_path, sep="\t", index_col="region_id")
         feats = feats.join(ann[["gene", "tss_distance", "promoter"]], on="region")

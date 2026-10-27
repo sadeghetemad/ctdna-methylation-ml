@@ -1,11 +1,11 @@
 """
-12_annotate_regions.py: nearest gene for every panel region (hg19), for interpreting the selected features.
+08_annotate_regions.py: nearest gene for every panel region (hg19), for interpreting the selected features.
 
 Downloads the UCSC hg19 refGene table once, then reports for each region the gene with the closest
 transcription start site, the signed distance (negative = upstream) and whether the region overlaps the
 promoter window (TSS -2 kb to +500 bp).
 
-Output (results/modelling/12_annotation/): region_genes.tsv
+Output (results/modelling/08_annotation/): region_genes.tsv
 """
 
 import gzip
@@ -22,7 +22,7 @@ COLS = ["bin", "name", "chrom", "strand", "txStart", "txEnd", "cdsStart", "cdsEn
 
 
 def main():
-    out = out_dir("12_annotation")
+    out = out_dir("08_annotation")
     gz = out / "refGene.hg19.txt.gz"
     if not gz.exists():
         log(f"download {URL}")

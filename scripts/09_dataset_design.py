@@ -1,16 +1,17 @@
 """
-13_dataset_design.py: train / test designs and their balance audit.
+09_dataset_design.py: train / test designs and their balance audit.
 
-Two designs:
+Three designs:
     balanced   hold-out of 30%, stratified on label x sequencing batch x sex x age band, so cancers and
                controls of both batches, both sexes and every age band are split in the same proportions
     study      the study's own groups (TV -> SBT), kept for comparison with the publication
+    lobo       leave one batch out: train on the larger sequencing batch, test on the smaller one
 
 For each design: class balance, batch, sex and age composition, and standardised mean differences
 (SMD) of the technical covariates between train and test, and between cancers and controls inside the
 training set (|SMD| > 0.2 flags an imbalance worth correcting or reporting).
 
-Outputs (results/modelling/13_design/): splits.tsv, balance.tsv, smd.tsv, fig_balance.png
+Outputs (results/modelling/09_design/): splits.tsv, balance.tsv, smd.tsv, fig_balance.png
 """
 
 import matplotlib
@@ -32,7 +33,7 @@ def smd(a, b):
 
 
 def main():
-    out = out_dir("13_design")
+    out = out_dir("09_design")
     samples, X, _ = load()
     D = designs(samples)
     split = pd.DataFrame(index=samples.index)

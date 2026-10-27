@@ -1,8 +1,8 @@
 """
-15_classical_ml.py: classical machine-learning models with in-fold feature selection, SHAP explanations
+11_classical_ml.py: classical machine-learning models with in-fold feature selection, SHAP explanations
 and a fairness audit.
 
-Every model is one pipeline: in-fold feature selection (the steps of 14: quality filter, single-feature
+Every model is one pipeline: in-fold feature selection (the steps of 10: quality filter, single-feature
 AUC ranking, correlation pruning, top k) -> imputation -> scaling -> classifier, with class-balanced
 weights. On the training part of a design:
 
@@ -14,10 +14,15 @@ weights. On the training part of a design:
                  when the shap package is not installed
 
 Models: L2 and elastic-net logistic regression, SVM (RBF), random forest, extra trees, histogram gradient
-boosting, and XGBoost / LightGBM when installed.
+boosting, and XGBoost / LightGBM when installed. Two controls:
 
-Outputs (results/modelling/15_classical/<design>/): cv_folds.tsv, results.tsv, subgroups.tsv,
-predictions.tsv, importance_<model>.tsv, fig_shap_<model>.png, fig_family_importance.png, results.json
+    covariates only   the same evaluation for a logistic model on technical and demographic covariates
+                      (batch, age, sex, DNA input, depth, fragments, artifact strength): what a model could get
+                      without any methylation signal (row family "reference")
+    permutation test  the best model's CV AUC against label-shuffled refits (5 folds, its typical settings)
+
+Outputs (results/modelling/11_classical/<design>/): cv_folds.tsv, results.tsv, subgroups.tsv,
+predictions.tsv, permutation.json, fig_permutation.png, importance_<model>.tsv, fig_shap_<model>.png, fig_family_importance.png, results.json
 """
 
 import argparse
@@ -33,6 +38,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from joblib import Memory, Parallel, delayed  # noqa: E402
+from sklearn.base import clone  # noqa: E402
 from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier  # noqa: E402
 from sklearn.impute import SimpleImputer  # noqa: E402
 from sklearn.inspection import permutation_importance  # noqa: E402
@@ -42,7 +48,7 @@ from sklearn.pipeline import Pipeline  # noqa: E402
 from sklearn.preprocessing import StandardScaler  # noqa: E402
 from sklearn.svm import SVC  # noqa: E402
 
-from ml_common import (FAMILIES, OUT, SEED, fold_vote, designs, family, load, log, logreg, out_dir,  # noqa: E402
+from ml_common import (DESIGNS, FAMILIES, OUT, SEED, fold_vote, designs, family, load, log, logreg, out_dir,  # noqa: E402
                     outer_folds, region, strata, summarise)
 from ml_selection import FoldSelector  # noqa: E402
 
@@ -131,6 +137,15 @@ def explain(name, kind, est, X_tr, y_tr, X_te, y_te, cols, out, max_display=20):
     return tab
 
 
+def covariates(samples):
+    """Technical and demographic covariates, numeric (batch and sex as 0 / 1)."""
+    s = samples
+    return pd.DataFrame({"batch": (s["submission_series"] == s["submission_series"].value_counts().index[0]).astype(float),
+                         "male": s["gender"].astype(str).str.upper().str.startswith("M").astype(float),
+                         **{c: s[c].astype(float) for c in ("age", "dna_input_ng", "median_region_depth", "n_fragments",
+                                                            "r2_end_ch_meth", "ch_filtered_fraction")}}, index=s.index)
+
+
 def pretty(col):
     f, r = col.split(":", 1)
     return f"{FAMILIES.get(f, f).split(' (')[0]} · {r}"
@@ -142,12 +157,13 @@ def slug(name):
 
 def main():
     ap = argparse.ArgumentParser(description="Classical ML with in-fold selection, SHAP and a fairness audit.")
-    ap.add_argument("--design", default="balanced", choices=["balanced", "study"])
+    ap.add_argument("--design", default="balanced", choices=list(DESIGNS))
     ap.add_argument("--repeats", type=int, default=2)
+    ap.add_argument("--permutations", type=int, default=200)
     ap.add_argument("--jobs", type=int, default=-1)
     ap.add_argument("--quick", action="store_true", help="Smoke test: 2 models, 1 repeat, small grids.")
     args = ap.parse_args()
-    out = out_dir(f"15_classical/{args.design}")
+    out = out_dir(f"11_classical/{args.design}")
     samples, X, _ = load()
     tr_idx, te_idx = designs(samples)[args.design]
     s_tr, s_te = samples.loc[tr_idx], samples.loc[te_idx]
@@ -192,6 +208,23 @@ def main():
         log(f"   {m:28s} CV AUC {row['cv_auc']:.3f}  test AUC {row['test_auc']:.3f} "
             f"[{row['test_auc_lo']:.2f}-{row['test_auc_hi']:.2f}]  pAUC {row['test_pauc']:.3f}  "
             f"sens {row['test_sens']:.2f} @ spec {row['test_spec']:.2f}")
+    # covariates-only reference: same folds, threshold vote and test
+    cov = covariates(samples).loc[list(tr_idx) + list(te_idx)]
+    Ctr, Cte = cov.loc[tr_idx].to_numpy(), cov.loc[te_idx].to_numpy()
+    cpipe = Pipeline([("imp", SimpleImputer(strategy="median")), ("sc", StandardScaler()), ("clf", logreg(0.0, C=1.0))])
+    oof, oq, p_te, q_te = np.zeros(len(y_tr)), np.zeros(len(y_tr)), [], []
+    for r, f, a, b in [x for x in folds if x[0] == 0]:
+        m = clone(cpipe).fit(Ctr[a], y_tr[a])
+        oof[b] = m.predict_proba(Ctr[b])[:, 1]
+        oq[b] = fold_vote(oof[b], oof[b], y_tr[b])
+        p_te.append(m.predict_proba(Cte)[:, 1])
+        q_te.append(fold_vote(p_te[-1], oof[b], y_tr[b]))
+    row, sub, _ = summarise("Covariates only (reference)", "reference", y_tr, oof, y_te, np.mean(p_te, 0), s_te,
+                            oq, np.mean(q_te, 0))
+    rows.append(row)
+    subs += sub
+    pred["Covariates only (reference)"] = np.mean(p_te, 0)
+    log(f"   {'Covariates only (reference)':28s} CV AUC {row['cv_auc']:.3f}  test AUC {row['test_auc']:.3f}")
     results = pd.DataFrame(rows).sort_values("cv_auc", ascending=False)
     results.to_csv(out / "results.tsv", sep="\t", index=False)
     pd.DataFrame(subs).to_csv(out / "subgroups.tsv", sep="\t", index=False)
@@ -210,7 +243,7 @@ def main():
         inner = list(StratifiedKFold(3, shuffle=True, random_state=SEED).split(np.zeros(len(y_tr)), key))
         est = GridSearchCV(pipe, grid, scoring="roc_auc", cv=inner, n_jobs=args.jobs).fit(Xtr, y_tr).best_estimator_
         tab = explain(m, kind, est, Xtr, y_tr, Xte, y_te, cols, out)
-        ann = OUT / "12_annotation/region_genes.tsv"
+        ann = OUT / "08_annotation/region_genes.tsv"
         if ann.exists():
             tab = tab.join(pd.read_csv(ann, sep="\t", index_col="region_id")[["gene", "promoter"]], on="region")
         tab.to_csv(out / f"importance_{slug(m)}.tsv", sep="\t", index=False)
@@ -226,9 +259,42 @@ def main():
         plt.tight_layout()
         plt.savefig(out / "fig_family_importance.png", dpi=170)
         plt.close("all")
+    # permutation test of the best model (its most frequent settings, 5-fold CV, shuffled labels)
+    perm = {}
+    if args.permutations:
+        m = results[results["family"] != "reference"].iloc[0]["model"]
+        fr = pd.DataFrame(fold_rows)
+        bp = json.loads(fr[fr["model"] == m]["params"].value_counts().index[0])
+        pipe = clone(C[m][1]).set_params(**bp)
+        f5 = [(a, b) for r, f, a, b in folds if r == 0]
+
+        def cv_auc(labels):
+            p = np.zeros(len(labels))
+            for a, b in f5:
+                p[b] = clone(pipe).fit(Xtr[a], labels[a]).predict_proba(Xtr[b])[:, 1]
+            return roc_auc_score(labels, p)
+
+        real = cv_auc(y_tr)
+        rng = np.random.default_rng(SEED)
+        null = np.array(Parallel(n_jobs=args.jobs)(delayed(cv_auc)(rng.permutation(y_tr)) for _ in range(args.permutations)))
+        perm = {"model": m, "params": bp, "real_auc": float(real), "null_mean": float(null.mean()),
+                "null_max": float(null.max()), "p": float((1 + (null >= real).sum()) / (1 + len(null))), "n": len(null)}
+        (out / "permutation.json").write_text(json.dumps(perm, indent=2, default=str))
+        fig, ax = plt.subplots(figsize=(6, 3.2))
+        ax.hist(null, bins=30, color="#9CA3AF")
+        ax.axvline(real, color="#E4572E", linewidth=2.5, label=f"real labels {real:.2f}")
+        ax.set_xlabel(f"CV AUC with shuffled labels ({len(null)} permutations)")
+        ax.set_ylabel("Count")
+        ax.set_title(f"Permutation test: {m} (p = {perm['p']:.3f})", fontsize=10)
+        ax.legend(frameon=False, fontsize=8)
+        ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+        fig.savefig(out / "fig_permutation.png", dpi=170)
+        plt.close(fig)
+        log(f"   permutation test {m}: real {real:.3f}, null {null.mean():.3f} (max {null.max():.3f}), p = {perm['p']:.4f}")
     (out / "results.json").write_text(json.dumps({"design": args.design, "n_train": len(tr_idx), "n_test": len(te_idx),
-                                                  "repeats": n_rep, "packages": HAS,
-                                                  "explained": list(explained)}, indent=2))
+                                                  "repeats": n_rep, "packages": HAS, "permutation": perm,
+                                                  "explained": list(explained)}, indent=2, default=str))
     log(f"-> {out}")
 
 

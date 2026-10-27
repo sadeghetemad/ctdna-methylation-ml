@@ -1,14 +1,18 @@
 """
-17_compare_models.py: all models of 15 (classical) and 16 (deep learning) side by side, on one design.
+13_compare_models.py: all models of 11 (classical) and 12 (deep learning) side by side, on one design.
 
     table        CV AUC, test AUC with bootstrap 95% CI, partial AUC (FPR <= 5%), sensitivity and
                  specificity at the threshold fixed on the training part, balanced accuracy
     paired test  bootstrap of the test-AUC difference between the best model (by CV AUC) and every other
+    benchmark    study design only: the published classifier's calls on the same test patients (Supplementary
+                 Table 7) against each model at the published specificity (threshold matched on the test
+                 controls, which favours our models); on the other designs the published classifier was
+                 trained on some of the test patients, so it is not compared
     fairness     test AUC per subgroup (sex, age band, sequencing batch) for every model
     figures      ROC curves, AUC bars, fairness heatmap, calibration of the best model
 
-Outputs (results/modelling/17_compare/<design>/): comparison.tsv, paired.tsv, fairness.tsv,
-fig_roc.png, fig_auc.png, fig_fairness.png, fig_calibration.png
+Outputs (results/modelling/13_compare/<design>/): comparison.tsv, paired.tsv, fairness.tsv,
+benchmark.tsv, fig_roc.png, fig_auc.png, fig_fairness.png, fig_calibration.png, fig_benchmark.png
 """
 
 import argparse
@@ -22,18 +26,18 @@ import pandas as pd  # noqa: E402
 from sklearn.calibration import calibration_curve  # noqa: E402
 from sklearn.metrics import roc_auc_score, roc_curve  # noqa: E402
 
-from ml_common import OUT, SEED, log, out_dir  # noqa: E402
+from ml_common import DESIGNS, OUT, SEED, log, out_dir, published_calls  # noqa: E402
 
 KIND_COLOR = {"linear": "#2A78D6", "kernel": "#8A5CC2", "tree": "#1BAF7A", "deep": "#E4572E"}
 
 
 def main():
     ap = argparse.ArgumentParser(description="Compare classical and deep-learning models on one design.")
-    ap.add_argument("--design", default="balanced", choices=["balanced", "study"])
+    ap.add_argument("--design", default="balanced", choices=list(DESIGNS))
     args = ap.parse_args()
-    out = out_dir(f"17_compare/{args.design}")
+    out = out_dir(f"13_compare/{args.design}")
     res, pred, sub = [], None, []
-    for part in ("15_classical", "16_deep"):
+    for part in ("11_classical", "12_deep"):
         d = OUT / part / args.design
         if not (d / "results.tsv").exists():
             log(f"missing {d}; skipped")
@@ -45,7 +49,7 @@ def main():
     R = pd.concat(res).sort_values("cv_auc", ascending=False).reset_index(drop=True)
     S = pd.concat(sub)
     y = pred["ml_label"].to_numpy()
-    best = R.iloc[0]["model"]
+    best = R[R["family"] != "reference"].iloc[0]["model"]
 
     rng = np.random.default_rng(SEED)
     boots = [rng.integers(0, len(y), len(y)) for _ in range(2000)]
@@ -122,6 +126,33 @@ def main():
     fig.tight_layout()
     fig.savefig(out / "fig_calibration.png", dpi=170)
     plt.close(fig)
+    if args.design == "study":
+        pub = published_calls().reindex(pred.index).to_numpy()
+        ok = ~np.isnan(pub)
+        yy, pc = y[ok], pub[ok].astype(int)
+        p_sens, p_spec = pc[yy == 1].mean(), 1 - pc[yy == 0].mean()
+        rows = [{"model": "Published ELSA-seq classifier", "family": "published", "sens": p_sens, "spec": p_spec}]
+        for _, r in R.iterrows():
+            sc = pred[r["model"]].to_numpy()[ok]
+            thr = np.quantile(sc[yy == 0], p_spec)
+            rows.append({"model": r["model"], "family": r["family"], "sens": float((sc[yy == 1] > thr).mean()),
+                         "spec": float((sc[yy == 0] <= thr).mean())})
+        B = pd.DataFrame(rows)
+        B.to_csv(out / "benchmark.tsv", sep="\t", index=False)
+        fig, ax = plt.subplots(figsize=(7.5, 0.4 * len(B) + 1.2))
+        yb = np.arange(len(B))[::-1]
+        ax.barh(yb, B["sens"], color=["#0A2F5C" if f == "published" else KIND_COLOR.get(f, "#9CA3AF") for f in B["family"]])
+        for yv, v in zip(yb, B["sens"]):
+            ax.text(v + 0.01, yv, f"{v:.0%}", va="center", fontsize=8)
+        ax.set_yticks(yb, B["model"], fontsize=8.5)
+        ax.set_xlim(0, 1)
+        ax.set_xlabel(f"Stage I cancers found at the published specificity ({p_spec:.1%})")
+        ax.spines[["top", "right"]].set_visible(False)
+        fig.tight_layout()
+        fig.savefig(out / "fig_benchmark.png", dpi=170)
+        plt.close(fig)
+        log(f"published classifier: sens {p_sens:.3f} at spec {p_spec:.3f}; best of ours "
+            f"{B.iloc[1:]['sens'].max():.3f}")
     log(f"best by CV AUC: {best} -> {out}")
 
 
