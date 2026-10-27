@@ -12,7 +12,7 @@ published specificity is written to benchmark_models.tsv.
 Writes to --results: test_predictions.tsv and benchmark.json (read by 10_report.py).
 
 Example:
-    python scripts/09_published_benchmark.py --data notebooks/data/nfcore_full --results results/ml/nfcore_paper
+    python scripts/09_published_benchmark.py --data data/ml_dataset/nfcore --results results/ml/nfcore_paper
 """
 
 import argparse
@@ -51,7 +51,7 @@ def published_calls():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="notebooks/data/nfcore_full")
+    ap.add_argument("--data", default="data/ml_dataset/nfcore")
     ap.add_argument("--results", default="results/ml/nfcore_paper")
     ap.add_argument("--all-models", action="store_true")
     args = ap.parse_args()

@@ -25,8 +25,8 @@ Sections and outputs (--out):
     results.json + figures (*.png), read by scripts/09_published_benchmark.py and scripts/10_report.py
 
 Examples:
-    python scripts/08_ml_analysis.py --data notebooks/data/nfcore_full --out results/ml/nfcore_paper
-    python scripts/08_ml_analysis.py --data notebooks/data/nfcore_full --out /tmp/ml_smoke --quick
+    python scripts/08_ml_analysis.py --data data/ml_dataset/nfcore --out results/ml/nfcore_paper
+    python scripts/08_ml_analysis.py --data data/ml_dataset/nfcore --out /tmp/ml_smoke --quick
 """
 
 import argparse
@@ -178,7 +178,7 @@ def _cv_pred(pipe, Xs, yv, seed):
 
 def main():
     ap = argparse.ArgumentParser(description="Modelling and evaluation on the step 07 ML dataset.")
-    ap.add_argument("--data", default="notebooks/data/nfcore_full")
+    ap.add_argument("--data", default="data/ml_dataset/nfcore")
     ap.add_argument("--out", default="results/ml/nfcore_paper")
     ap.add_argument("--outer-repeats", type=int, default=3, help="Repeats of the outer 5-fold CV on the development set.")
     ap.add_argument("--train-group", default="TV", help="model_group used for development (paper: TV).")

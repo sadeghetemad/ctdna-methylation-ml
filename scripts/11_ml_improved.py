@@ -30,7 +30,7 @@ samples (lobo, and SRR151 cancers in paper), batch centring falls back to the la
 median of that batch in the test data, against the median of all training samples.
 
 Example:
-    python scripts/11_ml_improved.py --data notebooks/data/nfcore_full --features features/nfcore \
+    python scripts/11_ml_improved.py --data data/ml_dataset/nfcore --features features/nfcore \
         --out results/ml/improved
 """
 
@@ -319,7 +319,7 @@ def threshold_rates(y, p, thr):
 
 def main():
     ap = argparse.ArgumentParser(description="Model variants for batch transfer and high-specificity sensitivity.")
-    ap.add_argument("--data", default="notebooks/data/nfcore_full")
+    ap.add_argument("--data", default="data/ml_dataset/nfcore")
     ap.add_argument("--features", default="features/nfcore", help="Step 05 count tables (read_n_frag, ...).")
     ap.add_argument("--out", default="results/ml/improved")
     ap.add_argument("--outer-repeats", type=int, default=3)

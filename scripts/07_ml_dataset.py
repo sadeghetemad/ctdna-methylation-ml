@@ -1,5 +1,5 @@
 """
-Step 07: the ML-ready dataset used by notebooks/data_analysis.ipynb and scripts 08-10.
+Step 07: the ML-ready dataset used by notebooks/data_analysis.ipynb and scripts 08-17.
 
 Inputs:
   features/<cohort>_features.tsv    methylation fraction per sample x region (04)
@@ -9,7 +9,7 @@ Inputs:
   features/<cohort>_sample_features.tsv  fragment-length features per sample (05)
   metadata/<cohort>.tsv             clinical / SRA metadata
 
-Outputs (notebooks/data/):
+Outputs (data/ml_dataset/[<mode>/]):
   X_methylation.tsv   sample_id x kept regions, low-depth values set to NaN
   X_coverage.tsv      same shape, methylation calls (for weighting / QC)
   X_<feature>.tsv     one per read-level feature of step 05 (frac_meth, mhl, ...),
@@ -22,7 +22,7 @@ Outputs (notebooks/data/):
   dataset_info.json   parameters and counts
 
 In the nf-core modes (CTDNA_MODE=nfcore / nfcore-gpu) the inputs are read
-from features/<mode>/ and the outputs go to notebooks/data/<mode>/.
+from features/<mode>/ and the outputs go to data/ml_dataset/<mode>/.
 
 Imputation, scaling and feature selection are left to the modelling code,
 inside the cross-validation folds. Only label-free filters are applied here
@@ -74,8 +74,8 @@ SAMPLE_COLUMNS = [
 def parse_args():
 
     p = argparse.ArgumentParser(
-        description="Build the ML-ready dataset in notebooks/data/ "
-                    "(notebooks/data/<mode>/ in the nf-core modes)."
+        description="Build the ML-ready dataset in data/ml_dataset/ "
+                    "(data/ml_dataset/<mode>/ in the nf-core modes)."
     )
 
     p.add_argument(
@@ -103,8 +103,8 @@ def parse_args():
         "--out-dir",
         type=Path,
         default=ML_DATA_DIR,
-        help="Output directory (default: notebooks/data, "
-             "or notebooks/data/<mode> in the nf-core modes).",
+        help="Output directory (default: data/ml_dataset, "
+             "or data/ml_dataset/<mode> in the nf-core modes).",
     )
 
     return p.parse_args()

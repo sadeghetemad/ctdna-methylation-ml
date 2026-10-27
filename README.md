@@ -37,7 +37,7 @@ This repository rebuilds the region-level methylation features used by the **ELS
 | **Features** | Over the published ELSA plasma panel regions: coverage-weighted CpG methylation, plus read-level methylation and fragment-length features |
 | **Reference** | UCSC hg19 |
 
-The pipeline has seven processing steps and four modelling steps. Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
+The pipeline has seven processing steps (01-07) and ten modelling and analysis steps (08-17). Each is a standalone Python script that wraps well-established tools (**FastQC**, **Trim Galore**, **Bismark**, **Bowtie2**, **samtools**). The Python code handles orchestration, feature engineering and QC only.
 
 The read processing (step 03) runs in one of three **modes**: `custom`, our own commands; [nf-core/methylseq](https://nf-co.re/methylseq) with Bismark (`nfcore`); or nf-core/methylseq with GPU alignment (`nfcore-gpu`). All feed the same feature and ML steps.
 
@@ -49,7 +49,7 @@ The read processing (step 03) runs in one of three **modes**: `custom`, our own 
  Data              Reference         Processing (step 03)            Features                     ML
 ┌─────────────┐   ┌─────────────┐   ┌───────────────────────────┐   ┌────────────────────────┐   ┌──────────────┐
 │ 01 metadata │   │ 02 hg19 +   │   │ custom: FastQC → trim →   │   │ 04 region methylation  │   │ 07 ML dataset│
-│    cohort   │ ─▶│    Bismark  │ ─▶│   align → dedup →         │ ─▶│ 05 read-level and      │ ─▶│ 08-10 models │
+│    cohort   │ ─▶│    Bismark  │ ─▶│   align → dedup →         │ ─▶│ 05 read-level and      │ ─▶│ 08-17 models │
 │    download │   │    index    │   │   filter → extract        │   │    fragment features   │   │              │
 │             │   │             │   │ nfcore(-gpu): nf-core     │   │ 06 feature QC          │   │              │
 └─────────────┘   └─────────────┘   └───────────────────────────┘   └────────────────────────┘   └──────────────┘
@@ -120,7 +120,7 @@ CTDNA_THREADS=16 python main.py
 | Needs | Tools from `environment.yml` | Nextflow (in `environment.yml`) and Docker, Singularity or Apptainer | as `nfcore`, plus an NVIDIA GPU, its driver and the NVIDIA Container Toolkit |
 | Coverage files for 04 | `data/methylation/<run>.filtered.namesort.bismark.cov.gz` | `data/nfcore/methylation/<run>.bismark.cov.gz` (links into the nf-core results) | `data/nfcore-gpu/methylation/<run>.bismark.cov.gz` (converted from the MethylDackel bedGraph) |
 | BAMs for 05 | `data/filtered/` | `results/nfcore_methylseq/bismark/deduplicated/` | `results/nfcore_gpu_methylseq/bwameth/deduplicated/` |
-| Features, QC, ML data | `features/`, `results/feature_qc/`, `notebooks/data/` | the same folders with an `nfcore/` subfolder | … with an `nfcore-gpu/` subfolder |
+| Features, QC, ML data | `features/`, `results/feature_qc/`, `data/ml_dataset/` | the same folders with an `nfcore/` subfolder | … with an `nfcore-gpu/` subfolder |
 
 Steps 01, 02 and 04–07 are the same in all modes. The modes never overwrite each other, so you can run several and compare `features/` with `features/nfcore/`.
 
@@ -444,7 +444,7 @@ Imputation, scaling and feature selection are deliberately left to the modelling
 
 ```bash
 python scripts/07_ml_dataset.py
-python scripts/07_ml_dataset.py --min-depth 30 --max-missing 0.1 --out-dir notebooks/data
+python scripts/07_ml_dataset.py --min-depth 30 --max-missing 0.1 --out-dir data/ml_dataset/custom
 ```
 
 | Option | Default | Description |
@@ -452,7 +452,7 @@ python scripts/07_ml_dataset.py --min-depth 30 --max-missing 0.1 --out-dir noteb
 | `--min-depth` | `20` | A value with fewer calls is set to `NaN` |
 | `--min-frags` | `10` | A step 05 value with fewer supporting fragments (CpG calls for `meth`) is set to `NaN` |
 | `--max-missing` | `0.2` | A region missing in a larger fraction of samples is dropped |
-| `--out-dir` | `notebooks/data[/<mode>]` | Output directory |
+| `--out-dir` | `data/ml_dataset[/<mode>]` | Output directory |
 
 | Output | Content |
 |---|---|
@@ -498,7 +498,7 @@ development set and `SBT` (single-blind test, 246 samples) is scored once.
    sequencing batch, a label-permutation test, a covariates-only model and CV inside each batch.
 
 ```bash
-python scripts/08_ml_analysis.py --data notebooks/data/nfcore_full --out results/ml/nfcore_paper
+python scripts/08_ml_analysis.py --data data/ml_dataset/nfcore --out results/ml/nfcore_paper
 ```
 
 ### `09_published_benchmark.py`: comparison with the published classifier
@@ -508,7 +508,7 @@ samples with the per-sample calls of the published classifier (Supplementary Tab
 specificity. The published calls are used only here, never as a feature.
 
 ```bash
-python scripts/09_published_benchmark.py --data notebooks/data/nfcore_full --results results/ml/nfcore_paper --all-models
+python scripts/09_published_benchmark.py --data data/ml_dataset/nfcore --results results/ml/nfcore_paper --all-models
 ```
 
 ### `10_report.py`: Word report
@@ -516,7 +516,7 @@ python scripts/09_published_benchmark.py --data notebooks/data/nfcore_full --res
 Builds `ML_Report.docx` from the outputs of steps 08 and 09, with a plain-language summary and the technical details.
 
 ```bash
-python scripts/10_report.py --results results/ml/nfcore_paper --data notebooks/data/nfcore_full
+python scripts/10_report.py --results results/ml/nfcore_paper --data data/ml_dataset/nfcore
 ```
 
 ### `11_ml_improved.py`: model variants for batch transfer and screening specificity
@@ -535,7 +535,7 @@ Each pipeline is tuned by ROC-AUC and by partial AUC at FPR ≤ 5%. The inner-CV
 and the 95%-specificity threshold comes from their own out-of-fold control scores, so it transfers to new data.
 
 ```bash
-python scripts/11_ml_improved.py --data notebooks/data/nfcore_full --features features/nfcore --out results/ml/improved
+python scripts/11_ml_improved.py --data data/ml_dataset/nfcore --features features/nfcore --out results/ml/improved
 ```
 
 On the single-blind test set, the model chosen by pooled partial AUC (clean + burden) finds 46% of Stage I cancers at
@@ -545,6 +545,40 @@ On the single-blind test set, the model chosen by pooled partial AUC (clean + bu
 > [!NOTE]
 > The `TV` group holds only one cancer from the smaller sequencing batch (SRR151), so the models do not transfer to
 > that batch on `SBT`. The report and the notebook show the per-batch results.
+
+### Modelling suite: feature selection, classical ML, SHAP, deep learning (`12`-`17`)
+
+A second, self-contained modelling suite on the same dataset, with its own designs, in-fold feature selection,
+explanations and a fairness audit. Shared code: `scripts/ml_common.py` (data, designs, folds, metrics, subgroups)
+and `scripts/ml_selection.py` (in-fold feature selection). Outputs go to `results/modelling/<step>/`.
+
+| Step | Script | What it does |
+|---|---|---|
+| 12 | `12_annotate_regions.py` | Nearest gene and promoter flag for every panel region (UCSC hg19 refGene, downloaded once) |
+| 13 | `13_dataset_design.py` | Train / test designs and their balance audit: class, batch, sex, age, standardised mean differences |
+| 14 | `14_feature_selection.py` | Quality filter → single-feature AUC with FDR → correlation pruning → stability selection (16,333 → 25) |
+| 15 | `15_classical_ml.py` | L2 / elastic-net logistic, SVM, random forest, extra trees, gradient boosting, XGBoost, LightGBM; SHAP |
+| 16 | `16_deep_learning.py` | MLP, FT-Transformer, Region Transformer (panel regions as tokens), with attention per region |
+| 17 | `17_compare_models.py` | Head-to-head table, paired bootstrap, ROC, fairness heatmap, calibration |
+
+Designs: **balanced** (main), a 30% hold-out stratified on label × sequencing batch × sex × age band (322 / 138);
+**study**, the publication's TV → SBT groups (214 / 246), for comparison. Selection, imputation, scaling, tuning and
+thresholds are fitted on training data only and refitted in every fold; test scores are the mean of the outer-fold
+models, and a patient is called positive when most fold models call it at their own 95%-specificity threshold. Sex
+and age stratify and audit the split but are never model inputs.
+
+```bash
+cd scripts
+python 12_annotate_regions.py
+python 13_dataset_design.py
+python 14_feature_selection.py
+python 15_classical_ml.py --design balanced     # also --design study; --quick for a smoke test
+python 16_deep_learning.py --design balanced    # needs torch
+python 17_compare_models.py --design balanced
+```
+
+Optional packages: `torch` (16), `shap`, `xgboost`, `lightgbm` (15; without shap, permutation importance is used).
+`CTDNA_ML_DATA` and `CTDNA_ML_OUT` override the input and output folders.
 
 ---
 
@@ -595,37 +629,45 @@ ctdna-methylation-ml/
 │   ├── 04_features.py            # region-level matrix
 │   ├── 05_read_features.py       # read-level and fragment features
 │   ├── 06_feature_qc.py          # feature QC
-│   ├── 07_ml_dataset.py          # ML-ready dataset
-│   ├── 08_ml_analysis.py         # nested-CV modelling, held-out test on SBT
+│   ├── 07_ml_dataset.py          # ML-ready dataset -> data/ml_dataset/
+│   ├── 08_ml_analysis.py         # nested-CV modelling on the study split (TV -> SBT)
 │   ├── 09_published_benchmark.py # comparison with the published classifier
 │   ├── 10_report.py              # Word report of steps 08-09
-│   ├── 11_ml_improved.py         # pooled / leave-one-batch-out CV, tumour-fragment score, pAUC tuning
+│   ├── 11_ml_improved.py         # pooled / leave-one-batch-out CV, tumour-fragment score (needs features/)
+│   ├── 12_annotate_regions.py    # nearest gene per panel region
+│   ├── 13_dataset_design.py      # balanced and study designs, balance audit
+│   ├── 14_feature_selection.py   # 16,333 -> 25 features (quality, FDR, pruning, stability)
+│   ├── 15_classical_ml.py        # classical ML with in-fold selection, SHAP, fairness audit
+│   ├── 16_deep_learning.py       # MLP, FT-Transformer, Region Transformer
+│   ├── 17_compare_models.py      # head-to-head comparison and fairness
+│   ├── ml_common.py              # shared data, designs, folds, metrics (12-17)
+│   ├── ml_selection.py           # in-fold feature selection (14-16)
 │   └── utils.py                  # shared paths, mode, cohort, logged command runner
 ├── notebooks/
-│   ├── data_analysis.ipynb       # features vs label, confounders, batches
-│   └── data/                     # ML-ready dataset of step 07 (not version-controlled)
+│   └── data_analysis.ipynb       # features vs label, confounders, batches
 ├── config/                       # nf-core/methylseq parameters and resources (local, GPU, AWS Batch)
 ├── infra/aws/                    # Terraform: S3, Batch (Spot + on-demand), IAM, head node
 ├── metadata/
 │   ├── raw/                      # SRA run table (input)
 │   ├── publication/              # supplementary tables (input)
 │   └── targets/                  # panel regions (BED + TSV)
-├── reference/hg19/               # FASTA + Bismark index
-├── data/                         # large intermediates (not version-controlled)
-│   ├── fastq/  trimmed/  aligned/
-│   ├── dedup/  filtered/  methylation/
-│   ├── nfcore/                   # nfcore mode: inputs/, work/, methylation/
-│   └── nfcore-gpu/               # nfcore-gpu mode: the same
-├── features/                     # sample × region matrices (nfcore/ for nfcore mode)
-├── results/
-│   ├── fastqc_raw/  fastqc_trimmed/
-│   ├── nfcore_methylseq/         # nf-core results and MultiQC report
-│   ├── nfcore_gpu_methylseq/     # the same for nfcore-gpu mode
-│   ├── feature_qc/               # (nfcore/ for nfcore mode)
-│   ├── data_analysis/            # tables of notebooks/data_analysis.ipynb
-│   └── ml/                       # steps 08-11: tables, figures, ML_Report.docx
-└── logs/
+├── data/                         # not version-controlled
+│   ├── ml_dataset/<mode>/        # the ML-ready dataset of all samples (step 07)
+│   ├── fastq/ ... methylation/   # large intermediates (kept in S3 for the AWS run)
+│   └── nfcore/, nfcore-gpu/      # nf-core inputs, work and methylation calls
+├── reference/hg19/               # FASTA + Bismark index (not version-controlled)
+├── features/                     # sample × region matrices of steps 04-05 (not version-controlled)
+└── results/                      # not version-controlled
+    ├── feature_qc/               # step 06
+    ├── data_analysis/            # tables of notebooks/data_analysis.ipynb
+    ├── ml/                       # steps 08-11: nfcore_paper/ (study split), improved/
+    └── modelling/                # steps 12-17: 12_annotation/ ... 17_compare/
 ```
+
+> [!NOTE]
+> Only the ML-ready dataset of all samples and the final results are kept locally. Raw reads, alignments,
+> methylation calls and the feature tables of steps 04-05 live in the project's S3 bucket (`fastq/`, `results/`,
+> `head-node-backup/features/`); rerun steps 04-07, or `11_ml_improved.py`, where those files are available.
 
 ---
 

@@ -102,7 +102,7 @@ def mode_dir(path):
 
 FEATURES_DIR = mode_dir("features")
 FEATURE_QC_DIR = mode_dir("results/feature_qc")
-ML_DATA_DIR = mode_dir("notebooks/data")
+ML_DATA_DIR = mode_dir("data/ml_dataset")
 
 # Sample-level features of 05_read_features.py (frag_*) and its QC columns
 SAMPLE_FEATURES_FILE = FEATURES_DIR / f"{COHORT}_sample_features.tsv"

@@ -5,7 +5,7 @@ Reads results.json, the tables and the figures written by 08_ml_analysis.py and 
 ML_Report.docx next to them.
 
 Example:
-    python scripts/10_report.py --results results/ml/nfcore_paper --data notebooks/data/nfcore_full
+    python scripts/10_report.py --results results/ml/nfcore_paper --data data/ml_dataset/nfcore
 """
 
 import argparse
@@ -139,7 +139,7 @@ def batch_figure(path, sel, ens, batches, scorable, test_cancers, cov_only, cv_w
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/ml/nfcore_paper")
-    ap.add_argument("--data", default="notebooks/data/nfcore_full", help="Step 07 folder (for per-batch counts).")
+    ap.add_argument("--data", default="data/ml_dataset/nfcore", help="Step 07 folder (for per-batch counts).")
     args = ap.parse_args()
     res = Path(args.results) if Path(args.results).is_absolute() else ROOT / args.results
     R = json.loads((res / "results.json").read_text())
